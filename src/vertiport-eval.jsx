@@ -178,7 +178,7 @@ function generatePDF(results) {
     { label:"Power Grid & DER",       wt:"20%", score:results.eia?.score??null, notes:results.eia?.notes||"EIA API key not set", detail:results.eia ? `${results.eia.details?.["Grid"]||""} · ${results.eia.details?.["TX sales"]||""}` : "Pending activation" },
     { label:"Zoning Compliance",      wt:"15%", score:results.site?.zoning?.score, notes:results.site?.zoning?.notes, detail:`${results.site?.zoning?.compliance||""} · ${results.site?.zoning?.land_use||""}` },
     { label:"Soil Stability & Flood", wt:"10%", score:results.site?.soil?.score, notes:results.site?.soil?.notes, detail:`${results.site?.soil?.flood_zone||""} · ${results.site?.soil?.slope_estimate||""}` },
-    { label:"Community DER Support",  wt:"5%",  score:results.nrel?.score??null, notes:results.nrel?.notes||"NREL API key not set", detail:results.nrel ? `${results.nrel.details?.["Utility"]||""} · ${results.nrel.details?.["Solar GHI"]||""}` : "Pending activation" },
+    { label:"Community DER Support",  wt:"5%",  score:results.nrel?.score??null, notes:results.nrel?.notes||"NREL API key not set", detail:results.nrel ? `${results.nrel.details?.["Utility"]||""} · GHI ${results.nrel.details?.["Solar GHI"]||"N/A"} · ${results.nrel.details?.["Comm. rate"]||""} · ${results.nrel.details?.["Net meter"]||""}` : "Pending activation" },
   ];
 
   siteCriteria.forEach((cr) => {
@@ -691,25 +691,89 @@ async function fetchEIAPowerScore(lat, lon, zoningScore) {
 }
 
 // ── NREL Community DER Support score ─────────────────────────
+// Scoring components (max 100):
+//   Solar resource quality  (GHI)           0–30 pts
+//   Utility type / grid access              0–30 pts
+//   Commercial electricity rate             0–25 pts  (charging economics)
+//   Net metering availability               0–15 pts
 async function fetchNRELDERScore(lat, lon) {
   const apiKey = import.meta.env.VITE_NREL_API_KEY;
   if (!apiKey) throw new Error("VITE_NREL_API_KEY not set");
-  const [utilityRes, solarRes] = await Promise.all([
-    fetch(`https://developer.nrel.gov/api/utility_rates/v3.json?api_key=${apiKey}&lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(10000) }),
-    fetch(`https://developer.nrel.gov/api/solar/solar_resource/v1.json?api_key=${apiKey}&lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(10000) }),
+
+  // Fetch both; treat each independently so a single failure doesn't zero the score
+  const [utilitySettled, solarSettled] = await Promise.allSettled([
+    fetch(`https://developer.nrel.gov/api/utility_rates/v3.json?api_key=${apiKey}&lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(12000) })
+      .then(r => r.json()),
+    fetch(`https://developer.nrel.gov/api/solar/solar_resource/v1.json?api_key=${apiKey}&lat=${lat}&lon=${lon}`, { signal: AbortSignal.timeout(12000) })
+      .then(r => r.json()),
   ]);
-  const utilityData = await utilityRes.json();
-  const solarData   = await solarRes.json();
-  const utilityName = utilityData.outputs?.utility_name || "Unknown";
-  const ghi         = solarData.outputs?.avg_ghi?.annual || 0;
-  let score = 42 + 15; // TX deregulated baseline
-  if (ghi >= 5.5) score += 18; else if (ghi >= 5.0) score += 12; else if (ghi >= 4.5) score += 6;
+
+  const uOut        = utilitySettled.status === "fulfilled" ? utilitySettled.value?.outputs : null;
+  const sOut        = solarSettled.status  === "fulfilled" ? solarSettled.value?.outputs  : null;
+  const utilityLive = !!uOut;
+  const solarLive   = !!sOut;
+
+  // ── Utility data ──────────────────────────────────────────────
+  const utilityName  = uOut?.utility_name  || "Unknown";
+  const commercialRate = typeof uOut?.commercial === "number" ? uOut.commercial : null; // $/kWh
+  const netMetering  = uOut?.net_metering  ?? null; // boolean or null if unknown
   const u = utilityName.toLowerCase();
-  if (u.includes("centerpoint")||u.includes("oncor")||u.includes("tnmp")||u.includes("aep")) score += 10;
-  score = Math.min(100, Math.max(0, Math.round(score)));
-  const notes = score >= 70 ? "High solar resource and established utility DER programs."
-    : "Standard DER support. TX deregulated market provides interconnection pathways.";
-  return { score, details: { "Utility":utilityName, "Solar GHI":ghi ? `${ghi.toFixed(2)} kWh/m²/day` : "N/A" }, notes };
+  const isMajorTXUtil = u.includes("centerpoint") || u.includes("oncor") ||
+                        u.includes("tnmp") || u.includes("aep texas") ||
+                        u.includes("aep central") || u.includes("aep north") ||
+                        u.includes("texas new mexico");
+
+  // ── Solar data ────────────────────────────────────────────────
+  const ghi = sOut?.avg_ghi?.annual || 0;  // kWh/m²/day
+  const dni = sOut?.avg_dni?.annual || 0;  // direct normal irradiance
+
+  // ── Score: Solar resource (0–30) ─────────────────────────────
+  const solarPts = ghi >= 5.5 ? 30 : ghi >= 5.0 ? 22 : ghi >= 4.5 ? 15 : ghi >= 4.0 ? 8 : solarLive ? 4 : 12; // 12 = TX baseline if API unavailable
+
+  // ── Score: Utility type (0–30) ────────────────────────────────
+  const utilityPts = !utilityLive ? 20  // TX ERCOT baseline if API unavailable
+    : isMajorTXUtil ? 30
+    : u.includes("unknown") ? 15
+    : 20; // other known utility
+
+  // ── Score: Commercial rate (0–25) — lower = better for charging economics ──
+  const ratePts = commercialRate === null ? 12  // TX average baseline
+    : commercialRate < 0.07 ? 25
+    : commercialRate < 0.09 ? 18
+    : commercialRate < 0.11 ? 12
+    : commercialRate < 0.13 ? 6
+    : 0;
+
+  // ── Score: Net metering (0–15) ────────────────────────────────
+  const nmPts = netMetering === true ? 15 : netMetering === false ? 5 : 8; // 8 = unknown/baseline
+
+  const score = Math.min(100, Math.max(0, Math.round(solarPts + utilityPts + ratePts + nmPts)));
+
+  // ── Details for UI card and PDF ──────────────────────────────
+  const rateStr   = commercialRate !== null ? `$${commercialRate.toFixed(3)}/kWh commercial` : "Rate N/A";
+  const nmStr     = netMetering === true ? "Net metering: yes" : netMetering === false ? "Net metering: no" : "Net metering: unknown";
+  const ghiStr    = ghi   ? `${ghi.toFixed(2)} kWh/m²/day` : "N/A";
+  const dniStr    = dni   ? `${dni.toFixed(2)} kWh/m²/day` : "N/A";
+  const sourceTag = (!utilityLive && !solarLive) ? " (TX baseline — NREL unavailable)" : (!utilityLive || !solarLive) ? " (partial live data)" : "";
+
+  const notes = score >= 75
+    ? `High solar resource, strong utility DER programs. ${rateStr}. ${nmStr}.`
+    : score >= 55
+    ? `Solid DER environment. ${rateStr}. ${nmStr}. Verify interconnection queue with ${utilityName}.`
+    : `Standard DER support${sourceTag}. TX deregulated market provides interconnection pathways. ${rateStr}.`;
+
+  return {
+    score,
+    details: {
+      "Utility":    utilityName,
+      "Solar GHI":  ghiStr,
+      "Solar DNI":  dniStr,
+      "Comm. rate": rateStr,
+      "Net meter":  nmStr,
+    },
+    notes,
+    _meta: { utilityLive, solarLive, solarPts, utilityPts, ratePts, nmPts },
+  };
 }
 
 // ── Quadrant Plot ─────────────────────────────────────────────
