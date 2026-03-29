@@ -1,13 +1,17 @@
 import { useState } from "react";
 import { jsPDF } from "jspdf";
 import { findNearestHeliport } from './heliportLookup.js';
+import { estimateFlyingDays } from './flyingDays.js';
+import { buildRegulatoryChecklist, CATEGORIES } from './regulatoryChecklist.js';
+import { buildInvestmentSummary } from './investmentViability.js';
+import SiteMap from './SiteMap.jsx';
 
 const C = {
-  bg: "#070a0f", surface: "#0d1520", card: "#111a26", border: "#1e2d3d",
-  amber: "#f0a030", amberDim: "#c07820", amberGlow: "rgba(240,160,48,0.12)",
-  green: "#28c87a", yellow: "#f0c030", red: "#f04858", teal: "#20c0b0",
-  text: "#8aaec8", textBright: "#d8eaf8", textDim: "#4a6278", textLabel: "#6a8fa8",
-  pending: "#3a5068",
+  bg: "#F9F9F9", surface: "#FFFFFF", card: "#EAF4FC", border: "#d0dce8",
+  amber: "#5B9BD5", amberDim: "#7db0b5", amberGlow: "rgba(91,155,213,0.15)",
+  green: "#1a8a58", yellow: "#c87a10", red: "#C0392B", teal: "#4a9a8e",
+  text: "#444444", textBright: "#222222", textDim: "#999999", textLabel: "#5B9BD5",
+  pending: "#9ab8d0",
 };
 
 const scoreColor = (s) => {
@@ -277,6 +281,47 @@ function generatePDF(results) {
     });
   }
 
+  // ── Flying Days ──
+  const fly = results.flyingDays;
+  if (fly) {
+    y += 3;
+    y = sectionHeader("ESTIMATED FLYING DAYS PER YEAR", y);
+    // Summary row
+    setFill("#111a26"); setDraw("#1e2d3d");
+    doc.roundedRect(col, y, W - margin*2, 16, 2, 2, "FD");
+    const flyCol = fly.flyingDays >= 300 ? "#28c87a" : fly.flyingDays >= 275 ? "#1a8a58" : fly.flyingDays >= 250 ? "#f0c030" : "#f04858";
+    setFill(flyCol);
+    doc.rect(col, y, 2.5, 16, "F");
+    setTxt(flyCol);
+    doc.setFont("helvetica","bold"); doc.setFontSize(16);
+    doc.text(String(fly.flyingDays), col + 6, y + 11);
+    setTxt("#6a8fa8");
+    doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(`days/yr  ·  ${fly.rating}  ·  ${Math.round((fly.flyingDays/365)*100)}% availability  ·  ${fly.noFlyDays} grounded`, col + 28, y + 7);
+    setTxt("#4a6278");
+    doc.setFontSize(6.5);
+    const flyNotes = doc.splitTextToSize(fly.notes, W - margin*2 - 32);
+    doc.text(flyNotes, col + 28, y + 12);
+    y += 20;
+    // Constraint mini-bars
+    const constraints = Object.entries(fly.breakdown).filter(([k]) => k !== "overlap");
+    const cLabels = { thunderstorm:"Thunderstorms", fog:"Fog/Low Vis", wind:"High Wind", precip:"Heavy Precip", heat:"Extreme Heat", icing:"Icing" };
+    const bw = (W - margin*2 - (constraints.length-1)*2) / constraints.length;
+    constraints.forEach(([key, days], i) => {
+      const bx = col + i * (bw + 2);
+      const cCol = days >= 30 ? "#f04858" : days >= 15 ? "#f0c030" : "#28c87a";
+      setFill("#111a26"); setDraw("#1e2d3d");
+      doc.roundedRect(bx, y, bw, 12, 1, 1, "FD");
+      setTxt("#6a8fa8");
+      doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+      doc.text(cLabels[key] || key, bx + 2, y + 4.5);
+      setTxt(cCol);
+      doc.setFont("helvetica","bold"); doc.setFontSize(8);
+      doc.text(String(days), bx + 2, y + 10);
+    });
+    y += 16;
+  }
+
   // ── Strengths / Concerns ──
   const strengths = results.top_strengths || [];
   const concerns = (results.top_concerns || []).filter(Boolean);
@@ -297,13 +342,236 @@ function generatePDF(results) {
     y += 6;
   }
 
+  // ── Regulatory Checklist (page 2) ──
+  const regItems = results.regulatory || [];
+  if (regItems.length > 0) {
+    doc.addPage();
+    y = 0;
+    // Page 2 header
+    setFill("#0a1220");
+    doc.rect(0, 0, W, 22, "F");
+    setFill("#f0a030");
+    doc.rect(0, 0, 4, 22, "F");
+    setTxt("#f0a030");
+    doc.setFont("helvetica","bold"); doc.setFontSize(12);
+    doc.text("REGULATORY CHECKLIST", col + 6, 10);
+    setTxt("#6a8fa8");
+    doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(`${results.geocode.matched || "Site"} · ${regItems.length} items · ${regItems.filter(r=>r.status==="required").length} required · ${regItems.filter(r=>r.urgency==="critical").length} critical`, col + 6, 17);
+    y = 28;
+
+    const statusCol = { required:"#f04858", likely_required:"#f0c030", conditional:"#20c0b0", recommended:"#6a8fa8" };
+    const statusLbl = { required:"REQ", likely_required:"LIKELY", conditional:"COND", recommended:"REC" };
+    const urgCol = { critical:"#f04858", high:"#f0a030", medium:"#5B9BD5", low:"#4a9a8e" };
+
+    // Group by category
+    const grouped = {};
+    for (const item of regItems) {
+      if (!grouped[item.category]) grouped[item.category] = [];
+      grouped[item.category].push(item);
+    }
+    const catNames = { FAA:"FAA / Federal Aviation", ENV:"Environmental", STATE:"State of Texas", LOCAL:"Local / Municipal", UTIL:"Utility & Infrastructure", OPS:"Operational Readiness" };
+
+    for (const [cat, items] of Object.entries(grouped)) {
+      // Check page space
+      if (y > 260) { doc.addPage(); y = 15; }
+      // Category header
+      setFill("#0d1520");
+      doc.rect(col, y, W - margin*2, 7, "F");
+      setFill("#f0a030");
+      doc.rect(col, y, 2, 7, "F");
+      setTxt("#c07820");
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+      doc.text(catNames[cat] || cat, col + 5, y + 5);
+      y += 9;
+
+      for (const item of items) {
+        if (y > 272) { doc.addPage(); y = 15; }
+        const sc = statusCol[item.status] || "#6a8fa8";
+        const uc = urgCol[item.urgency] || "#6a8fa8";
+        // Row
+        const noteLines = doc.splitTextToSize(item.notes, W - margin*2 - 10);
+        const rowH = 10 + noteLines.length * 3.5;
+        setFill("#111a26"); setDraw("#1e2d3d");
+        doc.roundedRect(col, y, W - margin*2, rowH, 1, 1, "FD");
+        setFill(sc);
+        doc.rect(col, y, 2, rowH, "F");
+        // Title
+        setTxt("#c8dce8");
+        doc.setFont("helvetica","bold"); doc.setFontSize(7);
+        doc.text(item.title, col + 5, y + 5);
+        // Status + urgency badges
+        setTxt(sc);
+        doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+        doc.text(statusLbl[item.status] || "", colR - 30, y + 5);
+        setTxt(uc);
+        doc.text((item.urgency || "").toUpperCase(), colR - 14, y + 5);
+        // Citation
+        setTxt("#4a6278");
+        doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+        doc.text(item.citation || "", col + 5, y + 9);
+        // Notes
+        setTxt("#8aaec8");
+        doc.setFontSize(6);
+        doc.text(noteLines, col + 5, y + 13);
+        y += rowH + 2;
+      }
+      y += 3;
+    }
+  }
+
+  // ── Investment / Viability (new page) ──
+  const inv = results.investment;
+  if (inv) {
+    doc.addPage();
+    y = 0;
+    // Header
+    setFill("#0a1220");
+    doc.rect(0, 0, W, 22, "F");
+    setFill("#f0a030");
+    doc.rect(0, 0, 4, 22, "F");
+    setTxt("#f0a030");
+    doc.setFont("helvetica","bold"); doc.setFontSize(12);
+    doc.text("INVESTMENT / VIABILITY SUMMARY", col + 6, 10);
+    setTxt("#6a8fa8");
+    doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(`${results.geocode.matched || "Site"} · ${inv.scenarioLabel} · Grade ${inv.grade.grade}`, col + 6, 17);
+    y = 28;
+
+    // Grade + key metrics row
+    const gCol = inv.grade.gradeColor;
+    // Grade circle
+    setDraw(gCol); doc.setLineWidth(1);
+    doc.circle(col + 15, y + 12, 12, "D");
+    setTxt(gCol);
+    doc.setFont("helvetica","bold"); doc.setFontSize(20);
+    doc.text(inv.grade.grade, col + 15, y + 15, { align:"center" });
+    doc.setFontSize(6);
+    doc.text(`${inv.grade.score}/100`, col + 15, y + 20, { align:"center" });
+    // Grade label
+    setTxt(gCol);
+    doc.setFont("helvetica","bold"); doc.setFontSize(9);
+    doc.text(inv.grade.gradeLabel, col + 32, y + 6);
+    setTxt("#6a8fa8");
+    doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(`Scenario: ${inv.scenarioLabel}`, col + 32, y + 12);
+
+    // Key metrics
+    const fmtPdf = (n) => n >= 1e6 ? `$${(n/1e6).toFixed(1)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}K` : `$${n}`;
+    const metricsX = col + 100;
+    const metrics = [
+      { l:"CAPEX", v:fmtPdf(inv.capex.mid) },
+      { l:"OPEX/yr", v:fmtPdf(inv.opex.mid) },
+      { l:"Payback", v:inv.paybackYears ? `${inv.paybackYears}yr` : "N/A" },
+      { l:"10yr NPV", v:(inv.npv>=0?"+":"-")+fmtPdf(Math.abs(inv.npv)) },
+    ];
+    metrics.forEach((m,i) => {
+      const mx = metricsX + i * 22;
+      setTxt("#6a8fa8");
+      doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+      doc.text(m.l, mx, y + 6);
+      setTxt("#c8dce8");
+      doc.setFont("helvetica","bold"); doc.setFontSize(8);
+      doc.text(m.v, mx, y + 12);
+    });
+    y += 28;
+
+    // CAPEX breakdown
+    y = sectionHeader("CAPITAL EXPENDITURE BREAKDOWN", y);
+    inv.capex.breakdown.forEach((item) => {
+      setFill("#111a26"); setDraw("#1e2d3d");
+      doc.roundedRect(col, y, W - margin*2, 8, 1, 1, "FD");
+      setTxt("#6a8fa8");
+      doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+      doc.text(item.label, col + 4, y + 5.5);
+      setTxt("#c8dce8");
+      doc.setFont("helvetica","bold"); doc.setFontSize(7);
+      doc.text(fmtPdf(item.mid), col + 80, y + 5.5);
+      setTxt("#4a6278");
+      doc.setFont("helvetica","normal"); doc.setFontSize(6);
+      doc.text(`${fmtPdf(item.low)} – ${fmtPdf(item.high)}`, col + 110, y + 5.5);
+      y += 9.5;
+    });
+    y += 4;
+
+    // Revenue projections
+    y = sectionHeader("REVENUE & MOVEMENTS", y);
+    setFill("#111a26"); setDraw("#1e2d3d");
+    doc.roundedRect(col, y, W - margin*2, 18, 1, 1, "FD");
+    const revItems = [
+      { l:"Year 1", v:fmtPdf(inv.revenue.yr1), m:`${(inv.movements.yr1/1000).toFixed(1)}K mov` },
+      { l:"Year 3", v:fmtPdf(inv.revenue.yr3), m:`${(inv.movements.yr3/1000).toFixed(1)}K mov` },
+      { l:"Year 5", v:fmtPdf(inv.revenue.yr5), m:`${(inv.movements.yr5/1000).toFixed(1)}K mov` },
+      { l:"Steady State", v:`${inv.movements.perDay} mov/day`, m:`${(inv.movements.steadyState/1000).toFixed(1)}K/yr` },
+    ];
+    revItems.forEach((r,i) => {
+      const rx = col + 4 + i * 43;
+      setTxt("#6a8fa8");
+      doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+      doc.text(r.l, rx, y + 5);
+      setTxt("#c8dce8");
+      doc.setFont("helvetica","bold"); doc.setFontSize(8);
+      doc.text(r.v, rx, y + 10.5);
+      setTxt("#4a6278");
+      doc.setFont("helvetica","normal"); doc.setFontSize(6);
+      doc.text(r.m, rx, y + 15);
+    });
+    y += 22;
+
+    // Risk summary
+    y = sectionHeader("RISK ASSESSMENT", y);
+    const riskW = (W - margin*2 - (inv.risks.length-1)*2) / inv.risks.length;
+    inv.risks.forEach((r,i) => {
+      const rx = col + i * (riskW + 2);
+      const rc = r.score >= 65 ? "#f04858" : r.score >= 40 ? "#f0c030" : "#28c87a";
+      setFill("#111a26"); setDraw("#1e2d3d");
+      doc.roundedRect(rx, y, riskW, 14, 1, 1, "FD");
+      setFill(rc);
+      doc.rect(rx, y, 2, 14, "F");
+      setTxt("#6a8fa8");
+      doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+      doc.text(r.category, rx + 4, y + 5);
+      setTxt(rc);
+      doc.setFont("helvetica","bold"); doc.setFontSize(7);
+      doc.text(r.label, rx + 4, y + 11);
+    });
+    y += 18;
+
+    // Timeline
+    y = sectionHeader(`DEVELOPMENT TIMELINE — ${inv.timeline.totalMonths} MONTHS`, y);
+    const tlW = W - margin*2;
+    const totalMo = inv.timeline.totalMonths;
+    const tlColors = ["#5B9BD5","#f0a030","#1a8a58","#4a9a8e"];
+    // Bar
+    let tlX = col;
+    inv.timeline.phases.forEach((p,i) => {
+      const pw = (p.months / totalMo) * tlW;
+      setFill(tlColors[i%4]);
+      doc.rect(tlX, y, pw, 5, "F");
+      tlX += pw;
+    });
+    y += 7;
+    // Labels
+    inv.timeline.phases.forEach((p,i) => {
+      setTxt(tlColors[i%4]);
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+      doc.text(`${p.name} (${p.months}mo)`, col + i * 43, y + 4);
+    });
+    y += 10;
+
+    // Disclaimer
+    setTxt("#4a6278");
+    doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+    doc.text("Model estimates based on industry benchmarks (NEXA, McKinsey). Not financial advice. NPV at 8% discount rate.", col, y + 3);
+  }
+
   // ── Footer ──
   const pageH = doc.internal.pageSize.height;
   setFill("#0a1220");
   doc.rect(0, pageH - 16, W, 16, "F");
   setTxt("#4a6278");
   doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
-  doc.text("Data sources: FAA · NREL · FEMA NFHL · USGS 3DEP · EIA · OpenStreetMap · Census Bureau", col, pageH - 9);
+  doc.text("Data sources: FAA · NREL · FEMA NFHL · USGS 3DEP · EIA · NOAA Climate Normals · OpenStreetMap · Census Bureau", col, pageH - 9);
   doc.text("Scores are estimates based on publicly available data. All site assessments require independent verification before investment decisions.", col, pageH - 5);
   setTxt("#c07820");
   doc.text("VERTIPORT EVALUATION SYSTEM  ·  BETA", colR, pageH - 7, { align:"right" });
@@ -453,10 +721,10 @@ function QuadrantPlot({ site, demand, previous }) {
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
       <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.15em"}}>SITE vs DEMAND MATRIX</div>
       <svg width={W} height={H}>
-        <rect x={pad} y={pad} width={plotW/2} height={plotH/2} fill="rgba(240,192,48,0.05)"/>
-        <rect x={pad+plotW/2} y={pad} width={plotW/2} height={plotH/2} fill="rgba(40,200,122,0.06)"/>
-        <rect x={pad} y={pad+plotH/2} width={plotW/2} height={plotH/2} fill="rgba(240,72,88,0.04)"/>
-        <rect x={pad+plotW/2} y={pad+plotH/2} width={plotW/2} height={plotH/2} fill="rgba(32,192,176,0.05)"/>
+        <rect x={pad} y={pad} width={plotW/2} height={plotH/2} fill="rgba(200,122,16,0.07)"/>
+        <rect x={pad+plotW/2} y={pad} width={plotW/2} height={plotH/2} fill="rgba(26,138,88,0.08)"/>
+        <rect x={pad} y={pad+plotH/2} width={plotW/2} height={plotH/2} fill="rgba(192,57,43,0.06)"/>
+        <rect x={pad+plotW/2} y={pad+plotH/2} width={plotW/2} height={plotH/2} fill="rgba(74,154,142,0.07)"/>
         {[{x:pad+plotW*0.25,y:pad+14,t:"DEMAND W/O SITE",c:C.yellow},{x:pad+plotW*0.75,y:pad+14,t:"PRIME SITE",c:C.green},
           {x:pad+plotW*0.25,y:pad+plotH-6,t:"LOW PRIORITY",c:C.red},{x:pad+plotW*0.75,y:pad+plotH-6,t:"INFRA PLAY",c:C.teal}
         ].map((l,i)=><text key={i} x={l.x} y={l.y} textAnchor="middle" fill={l.c} fontSize="7.5" fontFamily="'IBM Plex Mono',monospace" opacity="0.7">{l.t}</text>)}
@@ -593,6 +861,421 @@ function LogLine({ msg, s }) {
   );
 }
 
+const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const CONSTRAINT_ICONS = { thunderstorm:"⛈", fog:"🌫", wind:"💨", precip:"🌧", heat:"🌡", icing:"❄" };
+const CONSTRAINT_LABELS = { thunderstorm:"Thunderstorms", fog:"Low Visibility / Fog", wind:"High Wind (>30 kt)", precip:"Heavy Precipitation", heat:"Extreme Heat / DA", icing:"Winter Icing" };
+
+function FlyingDaysPanel({ data }) {
+  if (!data) return null;
+  const { flyingDays, noFlyDays, breakdown, rating, ratingColor, notes, monthly } = data;
+  const pct = Math.round((flyingDays / 365) * 100);
+
+  // Bar chart max for monthly view
+  const maxFly = Math.max(...monthly.map(m => m.flyDays), 1);
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>ESTIMATED FLYING DAYS PER YEAR</div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"20px 22px"}}>
+
+        {/* Top row: big number + rating + donut-style ring */}
+        <div style={{display:"flex",gap:20,alignItems:"center",marginBottom:18,flexWrap:"wrap"}}>
+          {/* Ring gauge */}
+          <div style={{position:"relative",width:100,height:100,flexShrink:0}}>
+            <svg width="100" height="100" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" fill="none" stroke={C.border} strokeWidth="8"/>
+              <circle cx="50" cy="50" r="42" fill="none" stroke={ratingColor} strokeWidth="8"
+                strokeDasharray={`${(pct / 100) * 264} 264`}
+                strokeLinecap="round" transform="rotate(-90 50 50)"
+                style={{transition:"stroke-dasharray 1.2s ease",filter:`drop-shadow(0 0 4px ${ratingColor}66)`}}/>
+            </svg>
+            <div style={{position:"absolute",top:0,left:0,right:0,bottom:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+              <div style={{fontFamily:"'Space Mono',monospace",fontSize:24,fontWeight:700,color:ratingColor,lineHeight:1}}>{flyingDays}</div>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel,marginTop:2}}>DAYS/YR</div>
+            </div>
+          </div>
+
+          {/* Rating + stats */}
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:600,color:ratingColor,letterSpacing:"0.15em",border:`1px solid ${ratingColor}44`,background:`${ratingColor}12`,padding:"4px 12px",borderRadius:4}}>{rating}</span>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textLabel}}>{pct}% operational availability</span>
+            </div>
+            <div style={{display:"flex",gap:16,marginBottom:10,flexWrap:"wrap"}}>
+              <div>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>FLYABLE</div>
+                <div style={{fontFamily:"'Space Mono',monospace",fontSize:18,fontWeight:700,color:C.green}}>{flyingDays}</div>
+              </div>
+              <div>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>GROUNDED</div>
+                <div style={{fontFamily:"'Space Mono',monospace",fontSize:18,fontWeight:700,color:C.red}}>{noFlyDays}</div>
+              </div>
+              <div>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>OVERLAP CREDIT</div>
+                <div style={{fontFamily:"'Space Mono',monospace",fontSize:18,fontWeight:700,color:C.teal}}>-{breakdown.overlap}</div>
+              </div>
+            </div>
+            <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:11,color:C.text,lineHeight:1.55}}>{notes}</div>
+          </div>
+        </div>
+
+        {/* Constraint breakdown */}
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.15em",marginBottom:8}}>GROUNDING CONSTRAINTS (DAYS/YR · BEFORE OVERLAP)</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:18}}>
+          {Object.entries(breakdown).filter(([k]) => k !== "overlap").map(([key, days]) => {
+            const barPct = Math.min(100, (days / 90) * 100);
+            const isHigh = key === "thunderstorm" ? days >= 60 : key === "fog" ? days >= 25 : key === "wind" ? days >= 15 : key === "heat" ? days >= 25 : key === "icing" ? days >= 5 : days >= 20;
+            const barColor = isHigh ? C.red : days > 10 ? C.yellow : C.green;
+            return (
+              <div key={key} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>{CONSTRAINT_ICONS[key]} {CONSTRAINT_LABELS[key]}</span>
+                  <span style={{fontFamily:"'Space Mono',monospace",fontSize:13,fontWeight:700,color:barColor}}>{days}</span>
+                </div>
+                <div style={{height:3,background:C.border,borderRadius:2}}>
+                  <div style={{width:`${barPct}%`,height:"100%",background:barColor,borderRadius:2,transition:"width 0.8s ease"}}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Monthly chart */}
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.15em",marginBottom:8}}>MONTHLY FLYING DAYS</div>
+        <div style={{display:"flex",gap:4,alignItems:"flex-end",height:80}}>
+          {monthly.map((m, i) => {
+            const h = Math.max(4, (m.flyDays / 31) * 70);
+            const barColor = m.flyDays >= 26 ? C.green : m.flyDays >= 22 ? C.teal : m.flyDays >= 18 ? C.yellow : C.red;
+            return (
+              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <div style={{fontFamily:"'Space Mono',monospace",fontSize:8,color:C.textLabel}}>{m.flyDays.toFixed(0)}</div>
+                <div style={{width:"100%",height:h,background:barColor,borderRadius:"3px 3px 0 0",transition:"height 0.8s ease",boxShadow:`0 0 4px ${barColor}44`}}/>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel}}>{MONTH_LABELS[i]}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Data source note */}
+        <div style={{marginTop:12,fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim}}>
+          Source: NOAA 30-year climate normals (1991-2020) · IDW interpolation from {">"}15 TX reference stations · eVTOL operational thresholds
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const STATUS_COLORS = { required:C.red, likely_required:C.yellow, conditional:C.teal, recommended:C.textLabel };
+const STATUS_LABELS = { required:"REQUIRED", likely_required:"LIKELY REQUIRED", conditional:"CONDITIONAL", recommended:"RECOMMENDED" };
+const URGENCY_COLORS = { critical:"#C0392B", high:"#c87a10", medium:"#5B9BD5", low:"#4a9a8e" };
+const URGENCY_LABELS = { critical:"CRITICAL", high:"HIGH", medium:"MEDIUM", low:"LOW" };
+const CAT_ICONS = { FAA:"✈", ENV:"🌿", STATE:"⭐", LOCAL:"🏛", UTIL:"⚡", OPS:"📋" };
+
+function RegulatoryChecklist({ items }) {
+  const [expandedCat, setExpandedCat] = useState(null);
+  const [expandedItem, setExpandedItem] = useState(null);
+  if (!items || items.length === 0) return null;
+
+  const grouped = {};
+  for (const item of items) {
+    if (!grouped[item.category]) grouped[item.category] = [];
+    grouped[item.category].push(item);
+  }
+
+  const totalRequired = items.filter(i => i.status === "required").length;
+  const totalCritical = items.filter(i => i.urgency === "critical").length;
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>REGULATORY CHECKLIST</div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"20px 22px"}}>
+
+        {/* Summary bar */}
+        <div style={{display:"flex",gap:14,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontFamily:"'Space Mono',monospace",fontSize:22,fontWeight:700,color:C.textBright}}>{items.length}</span>
+            <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>ITEMS</span>
+          </div>
+          <div style={{height:20,width:1,background:C.border}}/>
+          <StatBadge count={totalRequired} label="REQUIRED" color={C.red}/>
+          <StatBadge count={totalCritical} label="CRITICAL" color="#C0392B"/>
+          <StatBadge count={items.filter(i=>i.status==="likely_required").length} label="LIKELY REQ" color={C.yellow}/>
+          <StatBadge count={items.filter(i=>i.status==="recommended").length} label="RECOMMENDED" color={C.textLabel}/>
+        </div>
+
+        {/* Urgency timeline hint */}
+        <div style={{display:"flex",gap:4,marginBottom:16,height:4,borderRadius:2,overflow:"hidden"}}>
+          {["critical","high","medium","low"].map(u => {
+            const count = items.filter(i => i.urgency === u).length;
+            return <div key={u} style={{flex:count,background:URGENCY_COLORS[u],minWidth:count>0?4:0,transition:"flex 0.5s ease"}}/>;
+          })}
+        </div>
+
+        {/* Category groups */}
+        {Object.entries(grouped).map(([cat, catItems]) => {
+          const isOpen = expandedCat === cat;
+          const critCount = catItems.filter(i => i.urgency === "critical" || i.urgency === "high").length;
+          return (
+            <div key={cat} style={{marginBottom:8}}>
+              {/* Category header */}
+              <div onClick={() => setExpandedCat(isOpen ? null : cat)}
+                style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:isOpen?"6px 6px 0 0":6,cursor:"pointer",userSelect:"none"}}>
+                <span style={{fontSize:13}}>{CAT_ICONS[cat]||"📄"}</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textBright,fontWeight:600,flex:1,letterSpacing:"0.08em"}}>{CATEGORIES[cat]||cat}</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>{catItems.length} items</span>
+                {critCount > 0 && <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:"#C0392B",background:"rgba(192,57,43,0.1)",border:"1px solid rgba(192,57,43,0.25)",borderRadius:3,padding:"1px 6px"}}>{critCount} critical/high</span>}
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textLabel,transition:"transform 0.2s",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▸</span>
+              </div>
+
+              {/* Items */}
+              {isOpen && (
+                <div style={{border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 6px 6px",overflow:"hidden"}}>
+                  {catItems.map((item) => {
+                    const isItemOpen = expandedItem === item.id;
+                    const sColor = STATUS_COLORS[item.status] || C.textLabel;
+                    const uColor = URGENCY_COLORS[item.urgency] || C.textLabel;
+                    return (
+                      <div key={item.id} style={{borderTop:item.id===catItems[0].id?"none":`1px solid ${C.border}`}}>
+                        <div onClick={() => setExpandedItem(isItemOpen ? null : item.id)}
+                          style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",cursor:"pointer",userSelect:"none",background:isItemOpen?"rgba(91,155,213,0.04)":"transparent"}}>
+                          {/* Status indicator */}
+                          <div style={{width:3,height:24,borderRadius:2,background:sColor,flexShrink:0}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textBright,marginBottom:2}}>{item.title}</div>
+                            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel}}>{item.authority}</div>
+                          </div>
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7,color:sColor,border:`1px solid ${sColor}44`,background:`${sColor}12`,padding:"2px 6px",borderRadius:3,whiteSpace:"nowrap",flexShrink:0}}>{STATUS_LABELS[item.status]}</span>
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7,color:uColor,border:`1px solid ${uColor}44`,background:`${uColor}12`,padding:"2px 6px",borderRadius:3,whiteSpace:"nowrap",flexShrink:0}}>{URGENCY_LABELS[item.urgency]}</span>
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textLabel,transition:"transform 0.2s",transform:isItemOpen?"rotate(90deg)":"rotate(0deg)",flexShrink:0}}>▸</span>
+                        </div>
+                        {isItemOpen && (
+                          <div style={{padding:"0 14px 12px 24px",background:"rgba(91,155,213,0.04)"}}>
+                            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.amber,marginBottom:6}}>{item.citation}</div>
+                            <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:11,color:C.text,lineHeight:1.6}}>{item.notes}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Footer */}
+        <div style={{marginTop:12,fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim}}>
+          Checklist is site-specific based on evaluation data. Items are auto-classified by airspace, zoning, flood zone, and heliport proximity. Verify with legal counsel before proceeding.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatBadge({ count, label, color }) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:4}}>
+      <span style={{fontFamily:"'Space Mono',monospace",fontSize:14,fontWeight:700,color}}>{count}</span>
+      <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel}}>{label}</span>
+    </div>
+  );
+}
+
+function fmt$(n) {
+  if (n >= 1e9) return `$${(n/1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${(n/1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n/1e3).toFixed(0)}K`;
+  return `$${n.toLocaleString()}`;
+}
+
+function InvestmentPanel({ data }) {
+  const [showCapex, setShowCapex] = useState(false);
+  if (!data) return null;
+  const { scenario, scenarioLabel, grade, capex, opex, movements, revenue, paybackYears, npv, risks, timeline } = data;
+
+  const riskAvg = Math.round(risks.reduce((s,r) => s+r.score, 0) / risks.length);
+  const riskColor = riskAvg >= 65 ? C.red : riskAvg >= 40 ? C.yellow : C.green;
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>INVESTMENT / VIABILITY SUMMARY</div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"20px 22px"}}>
+
+        {/* Grade + Scenario header */}
+        <div style={{display:"flex",gap:20,alignItems:"center",marginBottom:20,flexWrap:"wrap"}}>
+          {/* Grade badge */}
+          <div style={{width:90,height:90,borderRadius:"50%",border:`3px solid ${grade.gradeColor}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:`${grade.gradeColor}0a`,flexShrink:0}}>
+            <div style={{fontFamily:"'Space Mono',monospace",fontSize:32,fontWeight:700,color:grade.gradeColor,lineHeight:1}}>{grade.grade}</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7,color:grade.gradeColor,marginTop:2}}>{grade.score}/100</div>
+          </div>
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:600,color:grade.gradeColor,letterSpacing:"0.1em",marginBottom:4}}>{grade.gradeLabel}</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textLabel,marginBottom:8}}>
+              Scenario: <span style={{color:C.textBright}}>{scenarioLabel}</span>
+            </div>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+              <MiniStat label="CAPEX (MID)" value={fmt$(capex.mid)} color={C.textBright}/>
+              <MiniStat label="ANNUAL OPEX" value={fmt$(opex.mid)} color={C.textBright}/>
+              <MiniStat label="PAYBACK" value={paybackYears ? `${paybackYears} yr` : "N/A"} color={paybackYears && paybackYears <= 8 ? C.green : paybackYears ? C.yellow : C.red}/>
+              <MiniStat label="10-YR NPV" value={fmt$(Math.abs(npv))} prefix={npv >= 0 ? "+" : "-"} color={npv >= 0 ? C.green : C.red}/>
+              <MiniStat label="RISK INDEX" value={`${riskAvg}/100`} color={riskColor}/>
+            </div>
+          </div>
+        </div>
+
+        {/* CAPEX / OPEX / Revenue row */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:18}}>
+          {/* CAPEX */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"12px 14px"}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.12em",marginBottom:6}}>CAPITAL EXPENDITURE</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <RangeVal label="LOW" value={fmt$(capex.low)}/>
+              <RangeVal label="MID" value={fmt$(capex.mid)} highlight/>
+              <RangeVal label="HIGH" value={fmt$(capex.high)}/>
+            </div>
+            <div onClick={() => setShowCapex(!showCapex)} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.amber,cursor:"pointer",marginTop:4}}>
+              {showCapex ? "Hide" : "Show"} breakdown {showCapex ? "▴" : "▾"}
+            </div>
+            {showCapex && (
+              <div style={{marginTop:8}}>
+                {capex.breakdown.map(item => (
+                  <div key={item.id} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",borderTop:`1px solid ${C.border}`,fontFamily:"'IBM Plex Mono',monospace",fontSize:8}}>
+                    <span style={{color:C.textLabel}}>{item.label}</span>
+                    <span style={{color:C.textBright}}>{fmt$(item.mid)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* OPEX */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"12px 14px"}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.12em",marginBottom:6}}>ANNUAL OPERATING COST</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <RangeVal label="LOW" value={fmt$(opex.low)}/>
+              <RangeVal label="MID" value={fmt$(opex.mid)} highlight/>
+              <RangeVal label="HIGH" value={fmt$(opex.high)}/>
+            </div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel,marginTop:4}}>
+              {((opex.mid / capex.mid) * 100).toFixed(1)}% of CAPEX
+            </div>
+          </div>
+
+          {/* Revenue */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"12px 14px"}}>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.12em",marginBottom:6}}>REVENUE PROJECTION</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <RangeVal label="YR 1" value={fmt$(revenue.yr1)}/>
+              <RangeVal label="YR 3" value={fmt$(revenue.yr3)}/>
+              <RangeVal label="YR 5" value={fmt$(revenue.yr5)} highlight/>
+            </div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel,marginTop:4}}>
+              {fmt$(revenue.perMovement)}/movement · {movements.perDay} mov/day
+            </div>
+          </div>
+        </div>
+
+        {/* Movement projections */}
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.12em",marginBottom:8}}>MOVEMENT PROJECTIONS</div>
+        <div style={{display:"flex",gap:4,alignItems:"flex-end",height:60,marginBottom:6}}>
+          {[
+            { label:"YR 1",val:movements.yr1,max:movements.steadyState },
+            { label:"YR 3",val:movements.yr3,max:movements.steadyState },
+            { label:"YR 5",val:movements.yr5,max:movements.steadyState },
+            { label:"STEADY",val:movements.steadyState,max:movements.steadyState },
+          ].map((m,i) => {
+            const h = Math.max(6, (m.val / m.max) * 50);
+            return (
+              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <div style={{fontFamily:"'Space Mono',monospace",fontSize:8,color:C.textBright}}>{(m.val/1000).toFixed(1)}K</div>
+                <div style={{width:"60%",height:h,background:i===3?C.amber:C.teal,borderRadius:"3px 3px 0 0",transition:"height 0.8s ease"}}/>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel}}>{m.label}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"flex",gap:16,marginBottom:18,fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel}}>
+          <span>Passenger: {Math.round(movements.paxPct*100)}%</span>
+          <span>Cargo: {Math.round(movements.cargoPct*100)}%</span>
+          <span>Flyable days: {data.movements?.steadyState ? Math.round(data.movements.steadyState / movements.perDay) : "—"}/yr</span>
+        </div>
+
+        {/* Risk matrix */}
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.12em",marginBottom:8}}>RISK ASSESSMENT</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:18}}>
+          {risks.map((r,i) => {
+            const rc = r.score >= 65 ? C.red : r.score >= 40 ? C.yellow : C.green;
+            return (
+              <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>{r.category}</span>
+                  <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7,color:rc,border:`1px solid ${rc}44`,background:`${rc}12`,padding:"1px 5px",borderRadius:3}}>{r.label}</span>
+                </div>
+                <div style={{height:3,background:C.border,borderRadius:2,marginBottom:4}}>
+                  <div style={{width:`${r.score}%`,height:"100%",background:rc,borderRadius:2,transition:"width 0.8s ease"}}/>
+                </div>
+                <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:9,color:C.text,lineHeight:1.45}}>{r.notes}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Timeline */}
+        <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.12em",marginBottom:8}}>
+          DEVELOPMENT TIMELINE — {timeline.totalMonths} MONTHS
+        </div>
+        <div style={{display:"flex",gap:0,marginBottom:6,borderRadius:4,overflow:"hidden",height:8}}>
+          {timeline.phases.map((p,i) => {
+            const colors = ["#5B9BD5","#f0a030","#1a8a58","#4a9a8e"];
+            return <div key={i} style={{flex:p.months,background:colors[i%4],position:"relative"}} title={`${p.name}: ${p.months} months`}/>;
+          })}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:`repeat(${timeline.phases.length},1fr)`,gap:8,marginBottom:12}}>
+          {timeline.phases.map((p,i) => {
+            const colors = ["#5B9BD5","#f0a030","#1a8a58","#4a9a8e"];
+            return (
+              <div key={i}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:colors[i%4],fontWeight:600,marginBottom:2}}>{p.name}</div>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel,marginBottom:4}}>{p.months} months</div>
+                {p.items.map((item,j) => (
+                  <div key={j} style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:9,color:C.text,lineHeight:1.5,paddingLeft:8,borderLeft:`1px solid ${C.border}`,marginBottom:2}}>
+                    {item}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Disclaimer */}
+        <div style={{marginTop:12,fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim}}>
+          Projections are model estimates based on evaluation data, industry benchmarks (NEXA, McKinsey), and 2025-2026 Texas cost indices. Not financial advice. Independent feasibility study required before investment decisions. NPV at 8% discount rate.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, prefix, color }) {
+  return (
+    <div>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textLabel}}>{label}</div>
+      <div style={{fontFamily:"'Space Mono',monospace",fontSize:14,fontWeight:700,color:color||C.textBright,lineHeight:1.2}}>
+        {prefix||""}{value}
+      </div>
+    </div>
+  );
+}
+
+function RangeVal({ label, value, highlight }) {
+  return (
+    <div style={{textAlign:"center"}}>
+      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:7,color:C.textLabel}}>{label}</div>
+      <div style={{fontFamily:"'Space Mono',monospace",fontSize:highlight?13:11,fontWeight:highlight?700:400,color:highlight?C.textBright:C.textLabel}}>{value}</div>
+    </div>
+  );
+}
+
 function parseCoords(lat,lon){const la=parseFloat(lat),lo=parseFloat(lon);if(isNaN(la)||isNaN(lo))return null;if(la<25||la>37||lo<-107||lo>-93)return null;return{lat:la,lon:lo};}
 
 const ADDR_EXAMPLES=["8900 Will Clayton Pkwy, Humble TX","6900 N Loop E, Houston TX","1400 Post Oak Blvd, Houston TX"];
@@ -637,6 +1320,9 @@ export default function App() {
       setL(1,`Site: ${data.site?.composite} | Demand: ${data.demand?.composite} | PI: ${priorityIndex(data.site?.composite||0,data.demand?.composite||0)}${heliNote}`,"done");
       setL(2,`Quadrant: ${getQuadrant(data.site?.composite||0,data.demand?.composite||0).label}`,"done");
       if (siteBoost > 0) addL(`Heliport: ${heli.name} · ${heli.distance_m}m · +${siteBoost} site / +${demandBoost} demand`,"done");
+      // Flying days estimate — NOAA climate normals
+      const flyData = estimateFlyingDays(data.geocode.lat, data.geocode.lon);
+      addL(`Flying days: ${flyData.flyingDays}/yr · ${flyData.rating}`,"done");
       const eiaLogIdx = logs.length; addL("EIA power grid layer → fetching...","running");
       const nrelLogIdx = logs.length; addL("NREL community DER layer → fetching...","running");
       const flags=[...(data.site?.parcel?.flags||[]),...(data.site?.airspace?.flags||[]),...(data.site?.zoning?.flags||[]),...(data.site?.soil?.flags||[])];
@@ -650,7 +1336,14 @@ export default function App() {
       else      setL(eiaLogIdx,  `EIA → ${eiaSettled.reason?.message||"fetch failed"}`, "warn");
       if (nrel) setL(nrelLogIdx, `NREL → Community DER: ${nrel.score}/100`,   "done");
       else      setL(nrelLogIdx, `NREL → ${nrelSettled.reason?.message||"fetch failed"}`, "warn");
-      setResults({...data,flags,eia,nrel,heliport:heli});setPhase("complete");
+      const fullResults = {...data,flags,eia,nrel,heliport:heli,flyingDays:flyData};
+      const regChecklist = buildRegulatoryChecklist(fullResults);
+      addL(`Regulatory checklist: ${regChecklist.filter(r=>r.status==="required").length} required, ${regChecklist.filter(r=>r.urgency==="critical").length} critical`,"done");
+      fullResults.regulatory = regChecklist;
+      const investment = buildInvestmentSummary(fullResults);
+      addL(`Investment: Grade ${investment.grade.grade} (${investment.grade.gradeLabel}) · CAPEX $${(investment.capex.mid/1e6).toFixed(1)}M · Payback ${investment.paybackYears ? investment.paybackYears+"yr" : "N/A"}`,"done");
+      fullResults.investment = investment;
+      setResults(fullResults);setPhase("complete");
     }catch(err){setL(0,`Error: ${err.message}`,"error");setError(err.message);setPhase("error");}
   }
 
@@ -675,7 +1368,7 @@ export default function App() {
         input:focus{outline:none!important;border-color:${C.amber}!important;box-shadow:0 0 0 2px ${C.amberGlow}!important;}
         .run-btn,.pdf-btn{transition:all 0.18s ease;}
         .run-btn:hover:not(:disabled){background:${C.amber}!important;color:${C.bg}!important;box-shadow:0 0 24px ${C.amberGlow};}
-        .pdf-btn:hover:not(:disabled){background:${C.green}!important;color:${C.bg}!important;box-shadow:0 0 20px rgba(40,200,122,0.25);}
+        .pdf-btn:hover:not(:disabled){background:${C.green}!important;color:${C.surface}!important;box-shadow:0 0 20px rgba(26,138,88,0.25);}
         .ex:hover{color:${C.amber}!important;}
         .log-row{animation:fadeIn 0.25s ease;}
         @keyframes fadeIn{from{opacity:0;transform:translateX(-4px);}to{opacity:1;transform:translateX(0);}}
@@ -753,7 +1446,7 @@ export default function App() {
 
         {/* Error */}
         {phase==="error"&&(
-          <div style={{background:"rgba(240,72,88,0.07)",border:"1px solid rgba(240,72,88,0.3)",borderRadius:8,padding:"14px 18px",marginBottom:24}}>
+          <div style={{background:"rgba(192,57,43,0.06)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:8,padding:"14px 18px",marginBottom:24}}>
             <div style={{color:C.red,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,marginBottom:8}}>ERROR — {error}</div>
             <button onClick={run} style={{background:"transparent",border:`1px solid ${C.red}`,color:C.red,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"7px 16px",borderRadius:4,cursor:"pointer"}}>RETRY</button>
           </div>
@@ -790,8 +1483,8 @@ export default function App() {
                   {results.development_thesis&&<div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.amber,marginBottom:12,lineHeight:1.5}}>▶ {results.development_thesis}</div>}
 
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
-                    {(results.top_strengths||[]).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.green,background:"rgba(40,200,122,0.09)",border:"1px solid rgba(40,200,122,0.25)",borderRadius:3,padding:"3px 9px"}}>✓ {s}</span>)}
-                    {(results.top_concerns||[]).filter(Boolean).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.yellow,background:"rgba(240,192,48,0.09)",border:"1px solid rgba(240,192,48,0.25)",borderRadius:3,padding:"3px 9px"}}>⚑ {s}</span>)}
+                    {(results.top_strengths||[]).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.green,background:"rgba(26,138,88,0.09)",border:"1px solid rgba(26,138,88,0.25)",borderRadius:3,padding:"3px 9px"}}>✓ {s}</span>)}
+                    {(results.top_concerns||[]).filter(Boolean).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.yellow,background:"rgba(200,122,16,0.09)",border:"1px solid rgba(200,122,16,0.25)",borderRadius:3,padding:"3px 9px"}}>⚑ {s}</span>)}
                   </div>
 
                   {/* PDF Download Button */}
@@ -826,6 +1519,15 @@ export default function App() {
                 <DemandRow label="Transit Gap" icon="🚌" score={results.demand?.transit_gap?.score||0} notes={results.demand?.transit_gap?.notes}/>
               </div>
 
+              {/* Flying Days */}
+              <FlyingDaysPanel data={results.flyingDays}/>
+
+              {/* Regulatory Checklist */}
+              <RegulatoryChecklist items={results.regulatory}/>
+
+              {/* Investment / Viability */}
+              <InvestmentPanel data={results.investment}/>
+
               {/* Flags */}
               {results.flags?.length>0&&(
                 <div style={{marginBottom:20,background:"rgba(240,160,48,0.04)",border:"1px solid rgba(240,160,48,0.18)",borderRadius:8,padding:"14px 18px"}}>
@@ -838,20 +1540,9 @@ export default function App() {
                 </div>
               )}
 
-              {/* API activation */}
-              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 18px",marginBottom:20}}>
-                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:12}}>ACTIVATE PENDING LAYERS — FREE REGISTRATION</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  {[{name:"EIA Open Data API",desc:"Grid capacity, utility territory, energy infrastructure",url:"https://www.eia.gov/opendata/",pts:"+20 pts",layer:"Power Grid & DER"},{name:"NREL Developer API",desc:"Distributed energy projects, RE Atlas, community solar",url:"https://developer.nrel.gov/signup/",pts:"+5 pts",layer:"DER Support"}].map(api=>(
-                    <div key={api.name} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,padding:"12px 14px"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:C.textBright}}>{api.name}</span><span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.green}}>{api.pts}</span></div>
-                      <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,marginBottom:4}}>UNLOCKS: {api.layer.toUpperCase()}</div>
-                      <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:11,color:C.text,marginBottom:8,lineHeight:1.5}}>{api.desc}</div>
-                      <a href={api.url} target="_blank" rel="noopener noreferrer" style={{color:C.amber,fontSize:10,fontFamily:"'IBM Plex Mono',monospace",textDecoration:"none"}}>REGISTER FREE →</a>
-                    </div>
-                  ))}
-                </div>
-              </div>
+
+              {/* Map */}
+              <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace}/>
 
               <div style={{display:"flex",gap:12,justifyContent:"center"}}>
                 <button onClick={run} disabled={phase==="loading"} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 24px",borderRadius:6,cursor:"pointer"}}>RE-ANALYZE</button>
@@ -862,7 +1553,7 @@ export default function App() {
         })()}
 
         <div style={{marginTop:48,paddingTop:18,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>
-          <span>FAA · NREL · FEMA · USGS · EIA · OSM</span>
+          <span>FAA · NREL · FEMA · USGS · EIA · NOAA · OSM</span>
           <span>PHASE 1 — TEXAS · FAA/NREL CALIBRATED</span>
         </div>
       </div>

@@ -1,143 +1,215 @@
 # Vertiport Evaluation System — Project Brief
 
+---
+
+## ⚠️ CODING RULE — READ FIRST
+
+**ALL development for this project happens in Claude Code CLI only.**
+
+Do NOT write or iterate on application code in Claude.ai chat. Code written there
+runs in a sandboxed browser environment that blocks government APIs (CORS), has no
+access to .env files or API keys, and behaves differently from the real Vite/React
+dev server in ways that are hard to debug.
+
+Claude.ai / Cowork is for: planning, architecture, scoring logic discussions, Notion
+project management, article writing, reviewing results.
+
+Claude Code CLI is for: all actual code — API integration, UI changes, testing,
+running the dev server, git commits.
+
+To start a coding session:
+  cd ~/Projects/vertiport-eval
+  code .       # open VS Code
+  claude       # start Claude Code CLI
+
+---
+
 ## What This Tool Does
 
-A site feasibility scoring tool for prospective vertiport locations. The user enters a single address. The tool queries multiple public data sources, computes a weighted feasibility score from 0 to 100, and returns a structured report with a score breakdown and key findings.
+A site feasibility scoring tool for prospective vertiport locations. The user enters
+a single address or GPS coordinates. The tool queries multiple public data sources,
+computes a two-axis feasibility score, and returns a structured report with PDF export.
 
-Target users: commercial property owners, real estate portfolio managers, brokers, and logistics operators evaluating sites for eVTOL infrastructure.
+Target users: commercial property owners, real estate portfolio managers, brokers,
+and logistics operators evaluating sites for eVTOL infrastructure.
 
 ---
 
 ## Geographic Scope
 
-**Phase 1 — Houston Metro** (prototype and validation)
-**Phase 2 — Statewide Texas** (beta launch)
-**Phase 3 — Nationwide** (post-traction expansion)
-
-Texas-first is a deliberate choice. ERCOT provides cleaner, more accessible energy grid data than multi-utility patchwork in other states. Texas parcel data is a defined, solvable coverage problem across 254 counties. Houston gives immediate network access for in-person demos and beta user recruitment.
+Phase 1 — All of Texas (expanded from Houston metro — validated scoring model)
+Phase 2 — Nationwide
+Phase 3 — Geographic batch query (find all qualifying sites in an area — deferred)
 
 ---
 
-## Scoring Criteria (Six Layers + Heliport Modifier)
+## Two-Axis Scoring Model
 
-| # | Criterion | Data Source | Weight |
-|---|-----------|-------------|--------|
-| 1 | Parcel size and contours | Census TIGER / County assessor APIs | High |
-| 2 | Zoning compliance | OpenStreetMap land use classifications | Medium |
-| 3 | FAA airspace obstacles | FAA B4UFLY API / LAANC data | High |
-| 4 | Power grid capacity and DER | ERCOT (Texas) / EIA API / NREL RE Atlas | High |
-| 5 | Soil stability | USGS 3DEP elevation / FEMA flood zone API | Medium |
-| 6 | Community support for DER | NREL distributed energy project counts | Low |
+| Axis           | What It Measures                                          | Max Score        |
+|----------------|-----------------------------------------------------------|------------------|
+| Site Score     | Infrastructure viability (parcel, airspace, zoning, etc.) | 75 / 100 w/ keys |
+| Demand Score   | Why fly here (employment, medical, cargo, etc.)           | 100              |
+| Priority Index | Site x 0.60 + Demand x 0.40 (cargo-first default)        | 100              |
 
-**Heliport Modifier (post-composite, applied to both axes):**
-
-| Heliport Status | Site Boost | Demand Boost |
-|-----------------|-----------|--------------|
-| Active medical heliport, multiple pads | +14 | +18 |
-| Active offshore / industrial staging | +12 | +12 |
-| Active general aviation heliport | +10 | +7 |
-| Inactive but structurally intact helipad | +6 | +3 |
-| No heliport within 500m | 0 | 0 |
-
-The heliport modifier is a two-axis boost, not a standalone criterion. Active heliports simultaneously prove FAA airspace coordination, structural load rating, existing electrical infrastructure, and live trip demand. Data source: FAA NASR heliport registry (free, public, no API key). In the current build, Claude identifies heliport status from training knowledge; production build will query NASR directly. Base composites are returned without the boost; code applies it and displays the delta.
-
-**Scoring philosophy:** Cargo-weighted. Airspace clearance and parcel size carry more weight than community sentiment metrics. Weights are configurable by the user in future versions.
+Quadrants: PRIME SITE / INFRASTRUCTURE PLAY / DEMAND WITHOUT SITE / LOW PRIORITY
 
 ---
 
-## Input / Output
+## Site Score Criteria
 
-**Input:** Single address string (that is all the user provides)
+| # | Criterion                  | Data Source                          | Weight |
+|---|----------------------------|--------------------------------------|--------|
+| 1 | Parcel size and contours   | Census TIGER / Harris County API     | 25%    |
+| 2 | FAA airspace               | FAA B4UFLY / LAANC                   | 25%    |
+| 3 | Power grid and DER         | EIA API / NREL RE Atlas              | 20%    |
+| 4 | Zoning compliance          | OpenStreetMap / Nominatim            | 15%    |
+| 5 | Soil stability / flood     | USGS 3DEP / FEMA NFHL                | 10%    |
+| 6 | Community DER support      | NREL distributed energy counts       | 5%     |
 
-**Output:**
-- Composite feasibility score (0-100)
-- Per-criterion score breakdown
-- Key findings summary (acreage, slope, airspace status, DER projects)
-- Flag list for issues requiring further investigation
+Heliport layer: FAA NASR registry — boosts both axes when active heliport found
+within 500m. Medical heliports: +15-18 site, +18-22 demand.
+Files: txHeliports.js (833 TX heliports), heliportLookup.js (Haversine + type boosts)
+
+---
+
+## Demand Score Criteria
+
+| # | Criterion                  | Weight |
+|---|----------------------------|--------|
+| 1 | Employment density         | 30%    |
+| 2 | Destinations / attractions | 25%    |
+| 3 | Medical and institutional  | 20%    |
+| 4 | Cargo and logistics        | 15%    |
+| 5 | Transit gap                | 10%    |
 
 ---
 
 ## API Stack
 
-| API | Purpose | Auth Required |
-|-----|---------|---------------|
-| Census Geocoder | Address to lat/lon | None |
-| Census TIGER | Parcel boundary approximation | None |
-| OpenStreetMap / Nominatim | Zoning and land use | None |
-| FAA B4UFLY | Airspace classification | None |
-| USGS 3DEP | Elevation and slope | None |
-| FEMA Flood Map | Soil/flood risk | None |
-| ERCOT API | Texas grid capacity | None (public) |
-| EIA API | Utility service territory | Free registration |
-| NREL RE Atlas | Distributed energy project counts | Free registration |
+| API                   | Purpose                        | Auth         | Status           |
+|-----------------------|--------------------------------|--------------|------------------|
+| Census Geocoder       | Address to lat/lon             | None         | Active           |
+| OpenStreetMap         | Zoning and land use            | None         | Active           |
+| FAA B4UFLY / LAANC    | Airspace classification        | None         | Active           |
+| USGS 3DEP             | Elevation and slope            | None         | Active           |
+| FEMA NFHL             | Flood zone                     | None         | Active           |
+| FAA NASR              | Heliport registry              | None         | Done             |
+| EIA Open Data         | Grid capacity / utility        | Key in .env  | Pending wiring   |
+| NREL RE Atlas         | Distributed energy counts      | Key in .env  | Pending wiring   |
+| Harris County         | Real parcel data               | None/public  | Pending          |
 
-Note: County assessor parcel data varies by county. Start with Harris County (Houston) which has a public API. Expand county coverage progressively through Phase 2.
-
----
-
-## Technical Decisions
-
-- **Build environment:** Claude Code (terminal-based, full filesystem access, MCP-ready)
-- **Prototype:** React artifact in Claude.ai for UI/scoring logic validation
-- **Production stack:** To be determined during Claude Code build phase
-- **Parcel data fallback:** Use Census TIGER boundary approximation when county assessor API is unavailable. Flag the score as "estimated parcel" in the report.
-- **Energy layer placeholder:** Render EIA/NREL scoring as a placeholder until API keys are registered. Do not silently omit — show the gap in the report.
+API keys stored in: ~/Projects/vertiport-eval/.env — never commit to source code.
 
 ---
 
-## Scoring Reference — FAA/NREL Standards
+## FAA/NREL Scoring Standards
 
-From the FAA Vertiport Electrical Infrastructure Study (NREL, stored in /research):
-
-- NREL recommends vertiports plan for 1 MW peak DC charging capacity (potentially higher)
-- Minimum parcel size considerations: existing sites studied include 1.5 acres (garage rooftop minimum) up to full airport parcels
-- Power capacity upgrade costs are heavily influenced by distance between electrical panel and charger — proximity to existing three-phase power is a positive scoring signal
-- Mobile charging is feasible but not economically competitive at current costs — fixed infrastructure proximity scores higher
-- eVTOL OEMs report peak DC charging loads of 300 kW to 1 MW per aircraft
-
----
-
-## Key Decisions Already Made
-
-1. Address-only input — no other user data required at intake
-2. Texas-first geographic scope, Houston metro prototype
-3. Cargo-weighted scoring (airspace + parcel size are top-weighted criteria)
-4. Claude Code for production build, Claude.ai artifact for prototype
-5. Score displayed as X/100 with full criterion breakdown
-6. EIA/NREL energy layer requires free API key registration before activation
-7. County assessor parcel data integrated progressively, starting with Harris County
+From the FAA Vertiport Electrical Infrastructure Study (NREL) in /research:
+- NREL minimum parcel: 1.5 acres for fixed vertiport infrastructure
+- Plan for 1 MW peak DC charging capacity (potentially higher)
+- eVTOL OEM peak loads: 300 kW to 1 MW per aircraft
+- Three-phase power proximity is a positive scoring signal
+- Mobile charging not economically competitive vs fixed infrastructure
 
 ---
 
-## Files in This Repository
+## Validated Test Sites
 
-```
+| Site                              | Site | Demand | Quadrant              |
+|-----------------------------------|------|--------|-----------------------|
+| 8900 Will Clayton Pkwy, Humble TX | 87   | ~50    | Infrastructure Play   |
+| 1400 Post Oak Blvd, Houston TX    | 28   | ~65    | Demand Without Site   |
+| TMC (29.7079, -95.4010)           | 44   | 91     | Demand Without Site   |
+| Willow Waterhole (29.6620,-95.52) | ~61  | ~58    | Moderate both axes    |
+
+---
+
+## Current Build Status
+
+Done:
+- React prototype validated — scoring logic and UI confirmed
+- Two-axis model (Site + Demand + Priority Index) validated
+- GPS coordinate input working
+- PDF report export working (jsPDF)
+- EIA and NREL API keys registered and stored in .env
+- Vite/React project initialized in /app
+- FAA NASR heliport layer complete (txHeliports.js — 833 TX heliports, heliportLookup.js)
+- Interactive Leaflet map — ground-level view + FAA airspace overlay (Class B/C/D,
+  25 TX airports, toggleable layers, click-for-detail popups) [Mar 28]
+- Estimated flying days per year — NOAA 30-year climate normals, 20 TX reference
+  stations, IDW interpolation, 6 grounding constraints, monthly chart [Mar 28]
+- Regulatory checklist — context-aware, 22-25 items, 6 categories, auto-classified
+  by airspace / zoning / flood / heliport proximity [Mar 28]
+- Investment / viability summary — scenario classification, CAPEX/OPEX/revenue model,
+  6-factor risk matrix, development timeline, investment grade A-D, 10-year NPV [Mar 28]
+- All Mar 28 features integrated into web UI and PDF report export
+
+Next up (do in Claude Code):
+- Wire EIA API into Power Grid & DER layer
+- Wire NREL API into Community DER Support layer
+- Replace knowledge-base scoring estimates with live API calls
+- Harris County parcel API integration
+- Style PDF report to match site aesthetic
+- Multi-site / network view (quadrant chart supports multiple points)
+- Rate limiting for beta launch
+- Beta landing page and email signup (HubSpot integration — free tier creates contact)
+
+---
+
+## Key Decisions
+
+1. Address-only input plus GPS coordinate toggle
+2. Texas-first scope, expanded to all of Texas (Phase 1 scope change, Mar 22)
+3. Cargo-weighted scoring (airspace + parcel top-weighted)
+4. Two-axis output: Site Score + Demand Score + Priority Index
+5. Claude Code for production build, Claude.ai for planning/prototype
+6. EIA and NREL API keys registered — ready for Claude Code integration
+7. Harris County parcel API as first county integration
+8. Priority Index = (Site × 0.60) + (Demand × 0.40) for cargo-first default
+9. **Scoring methodology is proprietary** — weights, thresholds, and normalization
+   logic are NEVER exposed to users or published. Users see scores, quadrant
+   placement, and pass/fail indicators only.
+10. **Business model** — Software qualifies and scopes consulting engagements.
+    The free report is the top of a professional services funnel, not standalone SaaS.
+11. **Revenue sequencing** — Free email-gated beta → Freemium at Phase 1 launch
+    ($49/month Pro) → Per-report tiers ($300–600 Desktop, $4k–8k Field Audit,
+    $15k–30k Engineering Package) → B2B API licensing (Phase 2+)
+12. Subcontract field work for premium tiers (drone surveys, acoustic baselines,
+    utility inquiries) — build in-house only when volume justifies it
+
+---
+
+## Revenue Tiers
+
+| Tier                        | Price        | Delivery   | What's Included                                                              |
+|-----------------------------|--------------|------------|------------------------------------------------------------------------------|
+| Free                        | $0           | Instant    | Site + Demand scores, quadrant, basic report. Email gate + role field. HubSpot contact created. |
+| Desktop Analyst Report      | $300–600     | Same day   | Full PDF: demand forecasting, investment viability, multi-site comparison. Software only, ~100% margin. |
+| Physical Field Audit        | $4,000–8,000 | 5–7 days   | Drone obstacle survey, 24-hr acoustic baseline, utility interconnection inquiry. Subcontracted. |
+| Bankable Engineering Package| $15,000–30,000| 3–4 weeks | Stamped engineering drawings, micro-weather + wind shear, preliminary FAA airspace submission. |
+
+---
+
+## Repository Structure
+
 vertiport-eval/
-├── CLAUDE.md              ← this file — read at start of every session
-├── /src                   ← application code
-├── /data                  ← sample parcels, Houston test addresses
-├── /docs                  ← API documentation, scoring methodology notes
-├── /tests                 ← test cases with known expected score ranges
-└── /research              ← FAA Vertiport Electrical Infrastructure Study (NREL)
-                              and other reference documents
-```
+├── CLAUDE.md              <- this file — read at start of every session
+├── .env                   <- API keys — NEVER commit to git
+├── /app                   <- Vite/React production app
+│   └── /src/App.jsx       <- main application
+├── /src                   <- prototype source files
+├── /data                  <- sample parcels, Houston test addresses
+├── /docs                  <- API docs, scoring methodology notes
+├── /tests                 <- test cases with known score ranges
+└── /research              <- FAA/NREL Vertiport Electrical Infrastructure Study
 
 ---
 
-## Next Build Steps
+## Project Context
 
-1. Build React prototype in Claude.ai — validate scoring logic and UI layout
-2. Register EIA API key (free): https://www.eia.gov/opendata/
-3. Register NREL API key (free): https://developer.nrel.gov/signup/
-4. Set up Harris County parcel API integration
-5. Move to Claude Code for production build with full API wiring
-6. Expand parcel coverage to remaining major Texas metros (Dallas, San Antonio, Austin)
-
----
-
-## Contacts and Context
-
-- Project owner based in Houston, TX
+- Owner: Houston, TX
+- Machine: Linux Mint NUC
 - Primary use case: cargo logistics and commercial property evaluation
-- Secondary use case: medical/hospital helipad conversion analysis (Houston Medical Center proximity)
-- Tool is intended as a beta product offered free to commercial property owners, portfolio managers, and brokers during launch phase
+- Secondary use case: medical/hospital helipad conversion analysis
+- Beta: free access for property owners, portfolio managers, brokers
+- Notion project: https://www.notion.so/32b7112e57b981009421d9f2168fdcd7
