@@ -629,6 +629,116 @@ function generatePDF(results) {
   setTxt("#5B9BD5");
   doc.text("VERTIPORT EVALUATION SYSTEM  ·  BETA", colR, pageH - 7, { align:"right" });
 
+  // ── Mode Comparison Page ──
+  const allModes = results.modes;
+  if (allModes) {
+    doc.addPage();
+    y = 0;
+    setFill("#5B9BD5"); doc.rect(0, 0, W, 22, "F");
+    setFill("#FFFFFF"); doc.rect(0, 0, 4, 22, "F");
+    setTxt("#FFFFFF"); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.text("MODE COMPARISON", col + 6, 10);
+    setTxt("#daeaf6"); doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text("PASSENGER  ·  CARGO  ·  CARGO + PAX — same site, three demand lenses", col + 6, 17);
+
+    y = 30;
+    const siteS = results.site?.composite || 0;
+    const colW = (W - margin * 2 - 10) / 3;
+    const modeDefs = [
+      { id:"passenger", label:"PASSENGER", color:"#5B9BD5" },
+      { id:"cargo",     label:"CARGO",     color:"#4a9a8e" },
+      { id:"combo",     label:"CARGO+PAX", color:"#7b7bd5" },
+    ];
+
+    modeDefs.forEach((md, i) => {
+      const mx = col + i * (colW + 5);
+      const mData = allModes[md.id] || {};
+      const dScore = mData.demand?.composite || 0;
+      const mPI = priorityIndex(siteS, dScore);
+      const mq = getQuadrant(siteS, dScore, md.id);
+      const inv = mData.investment;
+      const grade = inv?.grade?.grade || "–";
+      const capex = inv?.capex?.mid ? `$${(inv.capex.mid/1e6).toFixed(1)}M` : "–";
+      const npv = inv?.npv?.mid !== undefined ? `$${(inv.npv.mid/1e6).toFixed(1)}M` : "–";
+      let cy = y;
+
+      // Column header
+      setFill(md.color); doc.rect(mx, cy, colW, 11, "F");
+      setTxt("#FFFFFF"); doc.setFont("helvetica","bold"); doc.setFontSize(8);
+      doc.text(md.label, mx + colW / 2, cy + 7.5, { align:"center" });
+      cy += 14;
+
+      // Demand + PI score boxes side-by-side
+      const halfW = (colW - 3) / 2;
+      const dCol = dScore >= 75 ? "#1a8a58" : dScore >= 45 ? "#c87a10" : "#C0392B";
+      const piCol = mPI >= 75 ? "#1a8a58" : mPI >= 45 ? "#c87a10" : "#C0392B";
+      setFill("#EAF4FC"); setDraw("#d0dce8"); doc.roundedRect(mx, cy, halfW, 22, 1, 1, "FD");
+      setTxt("#5B9BD5"); doc.setFontSize(5.5); doc.setFont("helvetica","normal");
+      doc.text("DEMAND", mx + halfW / 2, cy + 5, { align:"center" });
+      setTxt(dCol); doc.setFontSize(18); doc.setFont("helvetica","bold");
+      doc.text(String(dScore), mx + halfW / 2, cy + 17, { align:"center" });
+      const piX = mx + halfW + 3;
+      setFill("#EAF4FC"); setDraw("#d0dce8"); doc.roundedRect(piX, cy, halfW, 22, 1, 1, "FD");
+      setTxt("#5B9BD5"); doc.setFontSize(5.5); doc.setFont("helvetica","normal");
+      doc.text("PRIORITY", piX + halfW / 2, cy + 5, { align:"center" });
+      setTxt(piCol); doc.setFontSize(18); doc.setFont("helvetica","bold");
+      doc.text(String(mPI), piX + halfW / 2, cy + 17, { align:"center" });
+      cy += 25;
+
+      // Quadrant badge
+      setFill(mq.color + "22"); setDraw(mq.color + "55");
+      doc.roundedRect(mx, cy, colW, 8, 1, 1, "FD");
+      setTxt(mq.color); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+      doc.text(mq.label, mx + colW / 2, cy + 5.5, { align:"center" });
+      cy += 11;
+
+      // Investment summary row
+      const gradeCol = grade === "A" ? "#1a8a58" : grade === "B" ? "#2da06a" : grade === "C" ? "#c87a10" : "#C0392B";
+      setFill("#FFFFFF"); setDraw("#d0dce8"); doc.roundedRect(mx, cy, colW, 16, 1, 1, "FD");
+      setFill(gradeCol); doc.rect(mx, cy, 2, 16, "F");
+      setTxt(gradeCol); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+      doc.text(grade, mx + 6, cy + 11);
+      setTxt("#5B9BD5"); doc.setFontSize(5); doc.setFont("helvetica","normal");
+      doc.text("GRADE", mx + 6, cy + 14.5);
+      setTxt("#444444"); doc.setFontSize(6); doc.setFont("helvetica","bold");
+      doc.text("CAPEX", mx + 22, cy + 6);
+      setTxt("#444444"); doc.setFont("helvetica","normal"); doc.setFontSize(7);
+      doc.text(capex, mx + 22, cy + 12);
+      setTxt("#444444"); doc.setFontSize(6); doc.setFont("helvetica","bold");
+      doc.text("10yr NPV", mx + 40, cy + 6);
+      const npvNum = parseFloat(npv);
+      setTxt(!isNaN(npvNum) && npvNum < 0 ? "#C0392B" : "#1a8a58");
+      doc.setFont("helvetica","normal"); doc.setFontSize(7);
+      doc.text(npv, mx + 40, cy + 12);
+      cy += 19;
+
+      // Demand criteria mini bars
+      const demCrit = DEMAND_CRITERIA[md.id] || [];
+      demCrit.forEach(cr => {
+        const sc = mData.demand?.[cr.key]?.score || 0;
+        const cCol2 = sc >= 75 ? "#1a8a58" : sc >= 45 ? "#c87a10" : "#C0392B";
+        setTxt("#444444"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+        const lbl = cr.label.length > 20 ? cr.label.slice(0, 19) + "…" : cr.label;
+        doc.text(lbl, mx, cy + 3.5);
+        setTxt(cCol2); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+        doc.text(String(sc), mx + colW - 7, cy + 3.5);
+        setFill("#e0eaf4"); doc.rect(mx, cy + 5, colW - 10, 2, "F");
+        setFill(cCol2); doc.rect(mx, cy + 5, (colW - 10) * sc / 100, 2, "F");
+        cy += 9;
+      });
+
+      // Development thesis (3 lines max)
+      if (mData.development_thesis) {
+        cy += 3;
+        setFill("#EAF4FC"); doc.rect(mx, cy, colW, 1, "F"); // divider
+        cy += 4;
+        setTxt("#5B9BD5"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+        const thLines = doc.splitTextToSize("▶ " + mData.development_thesis, colW);
+        doc.text(thLines.slice(0, 4), mx, cy);
+      }
+    });
+  }
+
   // ── Save ──
   const filename = `vertiport-report-${(results.geocode.matched||"site").split(",")[0].replace(/\s+/g,"-").toLowerCase()}.pdf`;
   doc.save(filename);
@@ -1265,7 +1375,7 @@ function scoreAirspace(lat, lon) {
 }
 
 // ── Quadrant Plot ─────────────────────────────────────────────
-function QuadrantPlot({ site, demand, previous }) {
+function QuadrantPlot({ site, demand, previousSite, previousDemand }) {
   const W=224,H=224,pad=30,plotW=W-pad*2,plotH=H-pad*2;
   const toX=v=>pad+(v/100)*plotW, toY=v=>pad+(1-v/100)*plotH;
   const q=getQuadrant(site,demand);
@@ -1291,8 +1401,8 @@ function QuadrantPlot({ site, demand, previous }) {
             <text x={pad-5} y={toY(v)+3} textAnchor="end" fill={C.textLabel} fontSize="8" fontFamily="'IBM Plex Mono',monospace">{v}</text>
           </g>
         ))}
-        {previous&&(()=>{
-          const px=toX(previous.site.composite),py=toY(previous.demand.composite);
+        {previousSite!=null&&previousDemand!=null&&(()=>{
+          const px=toX(previousSite),py=toY(previousDemand);
           return <><line x1={px} y1={py} x2={toX(site)} y2={toY(demand)} stroke={C.textDim} strokeWidth="1" strokeDasharray="3,2" opacity="0.4"/><circle cx={px} cy={py} r={5} fill="none" stroke={C.textDim} strokeWidth="1.5" opacity="0.45"/></>;
         })()}
         <circle cx={toX(site)} cy={toY(demand)} r={9} fill={q.color} opacity="0.15"/>
@@ -2261,6 +2371,8 @@ export default function App() {
           const pi=priorityIndex(siteScore,demandScore);
           const q=getQuadrant(siteScore,demandScore,demandTab);
           const demandSubLabel={passenger:"passenger draw",cargo:"cargo & logistics",combo:"cargo + passenger"}[demandTab]||"demand";
+          const prevSite=previous?.site?.composite??null;
+          const prevDemand=previous?.modes?.[demandTab]?.demand?.composite??null;
           return (
             <div>
               {/* Demand mode tabs */}
@@ -2284,7 +2396,7 @@ export default function App() {
 
               {/* Score header */}
               <div style={{display:"flex",gap:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"22px 24px",marginBottom:20,flexWrap:"wrap"}}>
-                <QuadrantPlot site={siteScore} demand={demandScore} previous={previous}/>
+                <QuadrantPlot site={siteScore} demand={demandScore} previousSite={prevSite} previousDemand={prevDemand}/>
                 <div style={{flex:1,minWidth:260}}>
                   <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:8}}>DUAL-AXIS ASSESSMENT</div>
                   <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,color:C.textBright,marginBottom:3}}>{results.geocode.matched}</div>
