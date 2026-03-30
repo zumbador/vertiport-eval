@@ -6,6 +6,7 @@ import { estimateFlyingDays } from './flyingDays.js';
 import { buildRegulatoryChecklist, CATEGORIES } from './regulatoryChecklist.js';
 import { buildInvestmentSummary } from './investmentViability.js';
 import SiteMap from './SiteMap.jsx';
+import SiteMap3D from './SiteMap3D.jsx';
 
 const C = {
   bg: "#F9F9F9", surface: "#FFFFFF", card: "#EAF4FC", border: "#d0dce8",
@@ -56,33 +57,33 @@ function generatePDF(results) {
   const q = getQuadrant(siteScore, demandScore);
 
   // ── Header band ──
-  setFill("#0a1220");
+  setFill("#5B9BD5");
   doc.rect(0, 0, W, 38, "F");
-  setFill("#f0a030");
+  setFill("#FFFFFF");
   doc.rect(0, 0, 4, 38, "F");
 
-  setTxt("#f0a030");
+  setTxt("#FFFFFF");
   doc.setFont("helvetica","bold");
   doc.setFontSize(18);
   doc.text("VERTIPORT", col + 6, 14);
   doc.setFontSize(8);
   doc.setFont("helvetica","normal");
-  setTxt("#c07820");
-  doc.text("SITE EVALUATION SYSTEM  ·  FAA/NREL CALIBRATED  ·  HOUSTON METRO BETA", col + 6, 20);
+  setTxt("#daeaf6");
+  doc.text("SITE EVALUATION SYSTEM  ·  FAA/NREL CALIBRATED  ·  TEXAS BETA", col + 6, 20);
 
-  setTxt("#6a8fa8");
+  setTxt("#daeaf6");
   doc.setFontSize(7.5);
   doc.text(`Generated: ${new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"})}`, col + 6, 27);
   doc.text("Phase 1 — Texas  ·  Two-Axis Scoring Model", col + 6, 32);
 
   // ── Site name ──
   y = 46;
-  setTxt("#d8eaf8");
+  setTxt("#222222");
   doc.setFont("helvetica","bold");
   doc.setFontSize(12);
   doc.text(results.geocode.matched || "Site Analysis", col, y);
   y += 5;
-  setTxt("#6a8fa8");
+  setTxt("#999999");
   doc.setFont("helvetica","normal");
   doc.setFontSize(8);
   doc.text(`${results.geocode.lat?.toFixed(5)}°N  ·  ${Math.abs(results.geocode.lon)?.toFixed(5)}°W`, col, y);
@@ -98,12 +99,12 @@ function generatePDF(results) {
 
   scores.forEach((s, i) => {
     const bx = col + i * (boxW + 4);
-    const col_ = s.val >= 75 ? "#28c87a" : s.val >= 45 ? "#f0c030" : "#f04858";
-    setFill("#0d1520"); setDraw("#1e2d3d");
+    const col_ = s.val >= 75 ? "#1a8a58" : s.val >= 45 ? "#c87a10" : "#C0392B";
+    setFill("#FFFFFF"); setDraw("#d0dce8");
     doc.roundedRect(bx, y, boxW, 28, 2, 2, "FD");
     setFill(col_);
     doc.rect(bx, y, 2.5, 28, "F");
-    setTxt("#6a8fa8");
+    setTxt("#5B9BD5");
     doc.setFont("helvetica","bold");
     doc.setFontSize(6.5);
     doc.text(s.label, bx + 6, y + 7);
@@ -111,7 +112,7 @@ function generatePDF(results) {
     doc.setFontSize(22);
     doc.setFont("helvetica","bold");
     doc.text(String(s.val), bx + 6, y + 20);
-    setTxt("#4a6278");
+    setTxt("#999999");
     doc.setFontSize(6);
     doc.setFont("helvetica","normal");
     doc.text(s.sub, bx + 6, y + 26);
@@ -126,7 +127,7 @@ function generatePDF(results) {
   doc.setFont("helvetica","bold");
   doc.setFontSize(8);
   doc.text(q.label, col + 4, y + 6);
-  setTxt("#8aaec8");
+  setTxt("#444444");
   doc.setFont("helvetica","normal");
   doc.setFontSize(7.5);
   doc.text(q.desc, col + 4, y + 11);
@@ -134,7 +135,7 @@ function generatePDF(results) {
   // ── Development thesis ──
   if (results.development_thesis) {
     y += 19;
-    setTxt("#f0a030");
+    setTxt("#5B9BD5");
     doc.setFont("helvetica","bold");
     doc.setFontSize(7.5);
     doc.text("▶  " + results.development_thesis, col, y, { maxWidth: W - margin*2 });
@@ -143,14 +144,14 @@ function generatePDF(results) {
   // ── Summary ──
   if (results.summary) {
     y += 9;
-    setFill("#0d1520");
+    setFill("#EAF4FC");
     const sumLines = doc.splitTextToSize(results.summary, W - margin*2 - 8);
     const sumH = sumLines.length * 4.5 + 8;
     doc.rect(col, y, W - margin*2, sumH, "F");
-    setDraw("#1e2d3d");
+    setDraw("#5B9BD5");
     doc.line(col, y, col, y + sumH);
     doc.line(col + 3, y, col + 3, y + sumH);
-    setTxt("#8aaec8");
+    setTxt("#444444");
     doc.setFont("helvetica","normal");
     doc.setFontSize(8);
     doc.text(sumLines, col + 7, y + 6);
@@ -159,11 +160,11 @@ function generatePDF(results) {
 
   // ── Section header helper ──
   const sectionHeader = (title, yp) => {
-    setFill("#0d1520");
+    setFill("#EAF4FC");
     doc.rect(col, yp, W - margin*2, 8, "F");
-    setFill("#f0a030");
+    setFill("#5B9BD5");
     doc.rect(col, yp, 2, 8, "F");
-    setTxt("#c07820");
+    setTxt("#5B9BD5");
     doc.setFont("helvetica","bold");
     doc.setFontSize(7);
     doc.text(title, col + 5, yp + 5.5);
@@ -185,15 +186,15 @@ function generatePDF(results) {
   siteCriteria.forEach((cr) => {
     const rowH = 13;
     const sc = cr.score;
-    const cCol = sc === null ? "#3a5068" : sc >= 75 ? "#28c87a" : sc >= 45 ? "#f0c030" : "#f04858";
-    setFill("#111a26"); setDraw("#1e2d3d");
+    const cCol = sc === null ? "#9ab8d0" : sc >= 75 ? "#1a8a58" : sc >= 45 ? "#c87a10" : "#C0392B";
+    setFill("#FFFFFF"); setDraw("#d0dce8");
     doc.roundedRect(col, y, W - margin*2, rowH, 1, 1, "FD");
     setFill(cCol);
     doc.rect(col, y, 2, rowH, "F");
-    setTxt("#6a8fa8");
+    setTxt("#444444");
     doc.setFont("helvetica","bold"); doc.setFontSize(7);
     doc.text(cr.label, col + 5, y + 5);
-    setTxt("#4a6278");
+    setTxt("#999999");
     doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
     doc.text(`WT ${cr.wt}`, col + 5, y + 10);
     // score
@@ -202,19 +203,19 @@ function generatePDF(results) {
     doc.text(sc !== null ? String(sc) : "–", col + 60, y + 9);
     // bar
     const barX = col + 72, barW = 60, barH = 3;
-    setFill("#1e2d3d");
+    setFill("#e0eaf4");
     doc.rect(barX, y + 5, barW, barH, "F");
     if (sc !== null) {
       setFill(cCol);
       doc.rect(barX, y + 5, barW * sc / 100, barH, "F");
     }
     // detail
-    setTxt("#8aaec8");
+    setTxt("#666666");
     doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
     const detLines = doc.splitTextToSize(cr.detail || "", W - margin*2 - 140);
     doc.text(detLines, col + 136, y + 5);
     if (cr.notes) {
-      setTxt("#4a6278");
+      setTxt("#999999");
       doc.setFontSize(6);
       const noteLines = doc.splitTextToSize(cr.notes, W - margin*2 - 140);
       doc.text(noteLines, col + 136, y + 9);
@@ -237,27 +238,27 @@ function generatePDF(results) {
   demandCriteria.forEach((cr) => {
     const rowH = 13;
     const sc = cr.score || 0;
-    const cCol = sc >= 75 ? "#28c87a" : sc >= 45 ? "#f0c030" : "#f04858";
-    setFill("#111a26"); setDraw("#1e2d3d");
+    const cCol = sc >= 75 ? "#1a8a58" : sc >= 45 ? "#c87a10" : "#C0392B";
+    setFill("#FFFFFF"); setDraw("#d0dce8");
     doc.roundedRect(col, y, W - margin*2, rowH, 1, 1, "FD");
     setFill(cCol);
     doc.rect(col, y, 2, rowH, "F");
-    setTxt("#6a8fa8");
+    setTxt("#444444");
     doc.setFont("helvetica","bold"); doc.setFontSize(7);
     doc.text(cr.label, col + 5, y + 5);
-    setTxt("#4a6278");
+    setTxt("#999999");
     doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
     doc.text(`WT ${cr.wt}`, col + 5, y + 10);
     setTxt(cCol);
     doc.setFont("helvetica","bold"); doc.setFontSize(14);
     doc.text(String(sc), col + 60, y + 9);
     const barX = col + 72, barW = 60, barH = 3;
-    setFill("#1e2d3d");
+    setFill("#e0eaf4");
     doc.rect(barX, y + 5, barW, barH, "F");
     setFill(cCol);
     doc.rect(barX, y + 5, barW * sc / 100, barH, "F");
     if (cr.notes) {
-      setTxt("#8aaec8");
+      setTxt("#666666");
       doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
       const noteLines = doc.splitTextToSize(cr.notes, W - margin*2 - 140);
       doc.text(noteLines, col + 136, y + 5);
@@ -273,9 +274,9 @@ function generatePDF(results) {
     flags.forEach((flag) => {
       const lines = doc.splitTextToSize("⚑  " + flag, W - margin*2 - 6);
       const fH = lines.length * 4.5 + 5;
-      setFill("#1a1200"); setDraw("#3a3000");
+      setFill("#FFF8E8"); setDraw("#e8c040");
       doc.rect(col, y, W - margin*2, fH, "FD");
-      setTxt("#f0c030");
+      setTxt("#c87a10");
       doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
       doc.text(lines, col + 3, y + 4.5);
       y += fH + 1.5;
@@ -288,18 +289,18 @@ function generatePDF(results) {
     y += 3;
     y = sectionHeader("ESTIMATED FLYING DAYS PER YEAR", y);
     // Summary row
-    setFill("#111a26"); setDraw("#1e2d3d");
+    setFill("#FFFFFF"); setDraw("#d0dce8");
     doc.roundedRect(col, y, W - margin*2, 16, 2, 2, "FD");
-    const flyCol = fly.flyingDays >= 300 ? "#28c87a" : fly.flyingDays >= 275 ? "#1a8a58" : fly.flyingDays >= 250 ? "#f0c030" : "#f04858";
+    const flyCol = fly.flyingDays >= 300 ? "#1a8a58" : fly.flyingDays >= 275 ? "#2da06a" : fly.flyingDays >= 250 ? "#c87a10" : "#C0392B";
     setFill(flyCol);
     doc.rect(col, y, 2.5, 16, "F");
     setTxt(flyCol);
     doc.setFont("helvetica","bold"); doc.setFontSize(16);
     doc.text(String(fly.flyingDays), col + 6, y + 11);
-    setTxt("#6a8fa8");
+    setTxt("#444444");
     doc.setFont("helvetica","normal"); doc.setFontSize(7);
     doc.text(`days/yr  ·  ${fly.rating}  ·  ${Math.round((fly.flyingDays/365)*100)}% availability  ·  ${fly.noFlyDays} grounded`, col + 28, y + 7);
-    setTxt("#4a6278");
+    setTxt("#666666");
     doc.setFontSize(6.5);
     const flyNotes = doc.splitTextToSize(fly.notes, W - margin*2 - 32);
     doc.text(flyNotes, col + 28, y + 12);
@@ -310,10 +311,10 @@ function generatePDF(results) {
     const bw = (W - margin*2 - (constraints.length-1)*2) / constraints.length;
     constraints.forEach(([key, days], i) => {
       const bx = col + i * (bw + 2);
-      const cCol = days >= 30 ? "#f04858" : days >= 15 ? "#f0c030" : "#28c87a";
-      setFill("#111a26"); setDraw("#1e2d3d");
+      const cCol = days >= 30 ? "#C0392B" : days >= 15 ? "#c87a10" : "#1a8a58";
+      setFill("#F9F9F9"); setDraw("#d0dce8");
       doc.roundedRect(bx, y, bw, 12, 1, 1, "FD");
-      setTxt("#6a8fa8");
+      setTxt("#999999");
       doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
       doc.text(cLabels[key] || key, bx + 2, y + 4.5);
       setTxt(cCol);
@@ -328,15 +329,15 @@ function generatePDF(results) {
   const concerns = (results.top_concerns || []).filter(Boolean);
   if (strengths.length || concerns.length) {
     y += 3;
-    setFill("#0d1520");
+    setFill("#F9F9F9");
     doc.rect(col, y, W - margin*2, (strengths.length + concerns.length) * 6 + 8, "F");
     strengths.forEach((s) => {
-      setTxt("#28c87a"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+      setTxt("#1a8a58"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
       doc.text("✓  " + s, col + 4, y + 7);
       y += 6;
     });
     concerns.forEach((s) => {
-      setTxt("#f0c030"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+      setTxt("#c87a10"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
       doc.text("⚑  " + s, col + 4, y + 7);
       y += 6;
     });
@@ -349,21 +350,21 @@ function generatePDF(results) {
     doc.addPage();
     y = 0;
     // Page 2 header
-    setFill("#0a1220");
+    setFill("#5B9BD5");
     doc.rect(0, 0, W, 22, "F");
-    setFill("#f0a030");
+    setFill("#FFFFFF");
     doc.rect(0, 0, 4, 22, "F");
-    setTxt("#f0a030");
+    setTxt("#FFFFFF");
     doc.setFont("helvetica","bold"); doc.setFontSize(12);
     doc.text("REGULATORY CHECKLIST", col + 6, 10);
-    setTxt("#6a8fa8");
+    setTxt("#daeaf6");
     doc.setFont("helvetica","normal"); doc.setFontSize(7);
     doc.text(`${results.geocode.matched || "Site"} · ${regItems.length} items · ${regItems.filter(r=>r.status==="required").length} required · ${regItems.filter(r=>r.urgency==="critical").length} critical`, col + 6, 17);
     y = 28;
 
-    const statusCol = { required:"#f04858", likely_required:"#f0c030", conditional:"#20c0b0", recommended:"#6a8fa8" };
+    const statusCol = { required:"#C0392B", likely_required:"#c87a10", conditional:"#20c0b0", recommended:"#999999" };
     const statusLbl = { required:"REQ", likely_required:"LIKELY", conditional:"COND", recommended:"REC" };
-    const urgCol = { critical:"#f04858", high:"#f0a030", medium:"#5B9BD5", low:"#4a9a8e" };
+    const urgCol = { critical:"#C0392B", high:"#c87a10", medium:"#5B9BD5", low:"#4a9a8e" };
 
     // Group by category
     const grouped = {};
@@ -377,28 +378,28 @@ function generatePDF(results) {
       // Check page space
       if (y > 260) { doc.addPage(); y = 15; }
       // Category header
-      setFill("#0d1520");
+      setFill("#EAF4FC");
       doc.rect(col, y, W - margin*2, 7, "F");
-      setFill("#f0a030");
+      setFill("#5B9BD5");
       doc.rect(col, y, 2, 7, "F");
-      setTxt("#c07820");
+      setTxt("#5B9BD5");
       doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
       doc.text(catNames[cat] || cat, col + 5, y + 5);
       y += 9;
 
       for (const item of items) {
         if (y > 272) { doc.addPage(); y = 15; }
-        const sc = statusCol[item.status] || "#6a8fa8";
-        const uc = urgCol[item.urgency] || "#6a8fa8";
+        const sc = statusCol[item.status] || "#5B9BD5";
+        const uc = urgCol[item.urgency] || "#5B9BD5";
         // Row
         const noteLines = doc.splitTextToSize(item.notes, W - margin*2 - 10);
         const rowH = 10 + noteLines.length * 3.5;
-        setFill("#111a26"); setDraw("#1e2d3d");
+        setFill("#FFFFFF"); setDraw("#d0dce8");
         doc.roundedRect(col, y, W - margin*2, rowH, 1, 1, "FD");
         setFill(sc);
         doc.rect(col, y, 2, rowH, "F");
         // Title
-        setTxt("#c8dce8");
+        setTxt("#222222");
         doc.setFont("helvetica","bold"); doc.setFontSize(7);
         doc.text(item.title, col + 5, y + 5);
         // Status + urgency badges
@@ -408,11 +409,11 @@ function generatePDF(results) {
         setTxt(uc);
         doc.text((item.urgency || "").toUpperCase(), colR - 14, y + 5);
         // Citation
-        setTxt("#4a6278");
+        setTxt("#999999");
         doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
         doc.text(item.citation || "", col + 5, y + 9);
         // Notes
-        setTxt("#8aaec8");
+        setTxt("#444444");
         doc.setFontSize(6);
         doc.text(noteLines, col + 5, y + 13);
         y += rowH + 2;
@@ -427,14 +428,14 @@ function generatePDF(results) {
     doc.addPage();
     y = 0;
     // Header
-    setFill("#0a1220");
+    setFill("#5B9BD5");
     doc.rect(0, 0, W, 22, "F");
-    setFill("#f0a030");
+    setFill("#FFFFFF");
     doc.rect(0, 0, 4, 22, "F");
-    setTxt("#f0a030");
+    setTxt("#FFFFFF");
     doc.setFont("helvetica","bold"); doc.setFontSize(12);
     doc.text("INVESTMENT / VIABILITY SUMMARY", col + 6, 10);
-    setTxt("#6a8fa8");
+    setTxt("#daeaf6");
     doc.setFont("helvetica","normal"); doc.setFontSize(7);
     doc.text(`${results.geocode.matched || "Site"} · ${inv.scenarioLabel} · Grade ${inv.grade.grade}`, col + 6, 17);
     y = 28;
@@ -453,7 +454,7 @@ function generatePDF(results) {
     setTxt(gCol);
     doc.setFont("helvetica","bold"); doc.setFontSize(9);
     doc.text(inv.grade.gradeLabel, col + 32, y + 6);
-    setTxt("#6a8fa8");
+    setTxt("#666666");
     doc.setFont("helvetica","normal"); doc.setFontSize(7);
     doc.text(`Scenario: ${inv.scenarioLabel}`, col + 32, y + 12);
 
@@ -468,10 +469,10 @@ function generatePDF(results) {
     ];
     metrics.forEach((m,i) => {
       const mx = metricsX + i * 22;
-      setTxt("#6a8fa8");
+      setTxt("#999999");
       doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
       doc.text(m.l, mx, y + 6);
-      setTxt("#c8dce8");
+      setTxt("#222222");
       doc.setFont("helvetica","bold"); doc.setFontSize(8);
       doc.text(m.v, mx, y + 12);
     });
@@ -480,15 +481,15 @@ function generatePDF(results) {
     // CAPEX breakdown
     y = sectionHeader("CAPITAL EXPENDITURE BREAKDOWN", y);
     inv.capex.breakdown.forEach((item) => {
-      setFill("#111a26"); setDraw("#1e2d3d");
+      setFill("#FFFFFF"); setDraw("#d0dce8");
       doc.roundedRect(col, y, W - margin*2, 8, 1, 1, "FD");
-      setTxt("#6a8fa8");
+      setTxt("#444444");
       doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
       doc.text(item.label, col + 4, y + 5.5);
-      setTxt("#c8dce8");
+      setTxt("#222222");
       doc.setFont("helvetica","bold"); doc.setFontSize(7);
       doc.text(fmtPdf(item.mid), col + 80, y + 5.5);
-      setTxt("#4a6278");
+      setTxt("#999999");
       doc.setFont("helvetica","normal"); doc.setFontSize(6);
       doc.text(`${fmtPdf(item.low)} – ${fmtPdf(item.high)}`, col + 110, y + 5.5);
       y += 9.5;
@@ -497,7 +498,7 @@ function generatePDF(results) {
 
     // Revenue projections
     y = sectionHeader("REVENUE & MOVEMENTS", y);
-    setFill("#111a26"); setDraw("#1e2d3d");
+    setFill("#F9F9F9"); setDraw("#d0dce8");
     doc.roundedRect(col, y, W - margin*2, 18, 1, 1, "FD");
     const revItems = [
       { l:"Year 1", v:fmtPdf(inv.revenue.yr1), m:`${(inv.movements.yr1/1000).toFixed(1)}K mov` },
@@ -507,13 +508,13 @@ function generatePDF(results) {
     ];
     revItems.forEach((r,i) => {
       const rx = col + 4 + i * 43;
-      setTxt("#6a8fa8");
+      setTxt("#999999");
       doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
       doc.text(r.l, rx, y + 5);
-      setTxt("#c8dce8");
+      setTxt("#222222");
       doc.setFont("helvetica","bold"); doc.setFontSize(8);
       doc.text(r.v, rx, y + 10.5);
-      setTxt("#4a6278");
+      setTxt("#666666");
       doc.setFont("helvetica","normal"); doc.setFontSize(6);
       doc.text(r.m, rx, y + 15);
     });
@@ -524,12 +525,12 @@ function generatePDF(results) {
     const riskW = (W - margin*2 - (inv.risks.length-1)*2) / inv.risks.length;
     inv.risks.forEach((r,i) => {
       const rx = col + i * (riskW + 2);
-      const rc = r.score >= 65 ? "#f04858" : r.score >= 40 ? "#f0c030" : "#28c87a";
-      setFill("#111a26"); setDraw("#1e2d3d");
+      const rc = r.score >= 65 ? "#C0392B" : r.score >= 40 ? "#c87a10" : "#1a8a58";
+      setFill("#FFFFFF"); setDraw("#d0dce8");
       doc.roundedRect(rx, y, riskW, 14, 1, 1, "FD");
       setFill(rc);
       doc.rect(rx, y, 2, 14, "F");
-      setTxt("#6a8fa8");
+      setTxt("#999999");
       doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
       doc.text(r.category, rx + 4, y + 5);
       setTxt(rc);
@@ -561,20 +562,20 @@ function generatePDF(results) {
     y += 10;
 
     // Disclaimer
-    setTxt("#4a6278");
+    setTxt("#999999");
     doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
     doc.text("Model estimates based on industry benchmarks (NEXA, McKinsey). Not financial advice. NPV at 8% discount rate.", col, y + 3);
   }
 
   // ── Footer ──
   const pageH = doc.internal.pageSize.height;
-  setFill("#0a1220");
+  setFill("#EAF4FC");
   doc.rect(0, pageH - 16, W, 16, "F");
-  setTxt("#4a6278");
+  setTxt("#666666");
   doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
   doc.text("Data sources: FAA · NREL · FEMA NFHL · USGS 3DEP · EIA · NOAA Climate Normals · OpenStreetMap · Census Bureau", col, pageH - 9);
   doc.text("Scores are estimates based on publicly available data. All site assessments require independent verification before investment decisions.", col, pageH - 5);
-  setTxt("#c07820");
+  setTxt("#5B9BD5");
   doc.text("VERTIPORT EVALUATION SYSTEM  ·  BETA", colR, pageH - 7, { align:"right" });
 
   // ── Save ──
@@ -1926,6 +1927,8 @@ export default function App() {
   const [previous,setPrevious]=useState(null);
   const [error,setError]=useState(null);
   const [pdfGenerating,setPdfGenerating]=useState(false);
+  const [mapView,setMapView]=useState("2d");
+  const [approachBearing,setApproachBearing]=useState(0);
 
   if (!gated) return <LandingPage onStart={() => setGated(true)} />;
 
@@ -2252,8 +2255,24 @@ export default function App() {
               )}
 
 
-              {/* Map */}
-              <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace}/>
+              {/* Map — 2D / 3D tab */}
+              <div style={{marginBottom:20}}>
+                <div style={{display:"flex",gap:6,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <button onClick={()=>setMapView("2d")} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,letterSpacing:"0.18em",padding:"5px 14px",borderRadius:4,cursor:"pointer",border:`1px solid ${mapView==="2d"?C.amber:C.border}`,background:mapView==="2d"?C.amberGlow:"transparent",color:mapView==="2d"?C.amber:C.textDim}}>GROUND VIEW</button>
+                  <button onClick={()=>setMapView("3d")} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,letterSpacing:"0.18em",padding:"5px 14px",borderRadius:4,cursor:"pointer",border:`1px solid ${mapView==="3d"?C.amber:C.border}`,background:mapView==="3d"?C.amberGlow:"transparent",color:mapView==="3d"?C.amber:C.textDim}}>3D OBSTACLE SURFACES</button>
+                  {mapView==="3d"&&(<>
+                    <div style={{width:1,height:16,background:C.border,marginLeft:4}}/>
+                    <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim}}>APPROACH:</span>
+                    {[{label:"N/S",brg:0},{label:"NE/SW",brg:45},{label:"E/W",brg:90},{label:"NW/SE",brg:135}].map(({label,brg})=>(
+                      <button key={brg} onClick={()=>setApproachBearing(brg)} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,padding:"4px 10px",borderRadius:4,cursor:"pointer",border:`1px solid ${approachBearing===brg?C.amber:C.border}`,background:approachBearing===brg?C.amberGlow:"transparent",color:approachBearing===brg?C.amber:C.textDim}}>{label}</button>
+                    ))}
+                  </>)}
+                </div>
+                {mapView==="2d"
+                  ? <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace}/>
+                  : <SiteMap3D geocode={results.geocode} airspace={results.site?.airspace} approachBearing={approachBearing}/>
+                }
+              </div>
 
               <div style={{display:"flex",gap:12,justifyContent:"center"}}>
                 <button onClick={run} disabled={phase==="loading"} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 24px",borderRadius:6,cursor:"pointer"}}>RE-ANALYZE</button>
