@@ -756,39 +756,39 @@ function buildPrompt(input, inputMode, evalMode = "passenger") {
 PARCEL (25%): >10ac=90-100, 5-10=80-90, 2-5=60-75, 0.5-2=25-45, <0.5=5-20. Flag <1.5ac.
 AIRSPACE (25%): Rural no airport=90-100. Humble/Will Clayton Class G IAH 18km=72-82. Suburban GA 10-20km=70-85. Heliport nearby=50-65. SW Houston near HOU 5-6km=32-42. Galleria Class B=18-28. IAH Class B=10-22.
 ZONING (15%): Industrial/logistics=88-100. Business park=65-80. Public park/greenspace=55-70. Mixed commercial=45-62. Galleria/luxury retail=22-35. Residential=8-22.
-SOIL (10%): Zone X=85-98. Stormwater detention=35-50. Zone AE=18-35. Humble Zone X=82-92.
+SOIL (10%): Zone X=85-98. Stormwater detention=35-50. Zone AE=18-35. Zone AE at active seaport/port terminal (Galveston, Texas City)=30-42 — coastal port siting, elevation mitigation expected. Zone VE (coastal wave)=10-20. Humble Zone X=82-92.
 SITE_COMPOSITE = parcel*0.25 + airspace*0.25 + zoning*0.15 + soil*0.10. Max=75.`;
 
   const demandSections = {
     passenger: `DEMAND CRITERIA:
 EMPLOYMENT (30%): CBD/Energy Corridor/major hub=80-100. Business park=55-75. Mixed=30-50. Residential/park=5-25.
-DESTINATIONS (25%): Stadium/arena/convention=85-100. Major international/hub airport (IAH/HOU/DAL/DFW)=80-95. Regional/commercial airport=65-80. General aviation airport=45-62. Outdoor venue/major park/museum=55-75. Willow Waterhole with music venue=58-70. Industrial=5-20.
+DESTINATIONS (25%): Stadium/arena/convention=85-100. Major international/hub airport (IAH/HOU/DAL/DFW)=80-95. Major cruise homeport terminal (Galveston, Port of Houston)=82-95. Regional/commercial airport=65-80. General aviation airport=45-62. Outdoor venue/major park/museum=55-75. Willow Waterhole with music venue=58-70. Industrial=5-20.
 MEDICAL (20%): Texas Medical Center=90-100. Regional hospital=60-80. Clinic=25-45. None=5-20.
 CARGO (15%): Port/major hub=85-100. Industrial corridor=60-80. Humble/Will Clayton logistics=75-90. Residential/park=5-20.
 TRANSIT_GAP (10%): Remote/car-dependent=70-90. Suburban limited transit=50-70. Near Metro rail=10-30.
 DEMAND_COMPOSITE = employment*0.30 + destinations*0.25 + medical*0.20 + cargo*0.15 + transit_gap*0.10.`,
 
     cargo: `DEMAND CRITERIA (CARGO OPERATIONS):
-LOGISTICS_HUB (30%): Major fulfillment/distribution center adjacent=85-100. Industrial/logistics park=65-82. Near freight corridor=45-65. Commercial=25-45. Residential=5-20.
-LAST_MILE (25%): Dense urban delivery demand (pop >50K in 5nm)=80-100. Suburban e-commerce density=55-75. Mixed delivery zone=35-55. Low density=10-30.
-CARGO_NETWORK (20%): Adjacent to major freight airport or port=85-100. Near intermodal terminal=65-80. Near major highway interchange=50-65. Suburban access=35-50. No freight infra=10-25.
-PRIORITY_FREIGHT (15%): On medical/pharma supply route (TMC area)=80-100. Cold chain/perishables hub=65-80. High-value cargo corridor=50-65. General freight=25-45. None=5-20.
-GROUND_ACCESS (10%): Direct truck dock + highway ramp=80-100. Good road network=55-75. Limited heavy vehicle access=30-50. Poor=5-25.
+LOGISTICS_HUB (30%): Major seaport/container terminal or cruise homeport (Port of Galveston, Port Houston, Texas City)=90-100. Major fulfillment/distribution center adjacent=85-95. Industrial/logistics park=65-82. Near freight corridor=45-65. Commercial=25-45. Residential=5-20.
+LAST_MILE (25%): NOTE — for seaport/maritime terminal locations, score on container throughput and intermodal volume, NOT population density. Major container/ro-ro port=82-95. Active intermodal terminal=65-80. Dense urban delivery demand (pop >50K in 5nm)=80-100. Suburban e-commerce density=55-75. Mixed delivery zone=35-55. Low density=10-30.
+CARGO_NETWORK (20%): On-port or adjacent to major seaport/container terminal=90-100. Adjacent to major freight airport=85-95. Near intermodal terminal=65-80. Near major highway interchange=50-65. Suburban access=35-50. No freight infra=10-25.
+PRIORITY_FREIGHT (15%): International container/ro-ro terminal=70-85. On medical/pharma supply route (TMC area)=80-100. Cold chain/perishables hub=65-80. High-value cargo corridor=50-65. General freight=25-45. None=5-20.
+GROUND_ACCESS (10%): Direct truck dock + highway ramp=80-100. Good road network=55-75. Barrier island/causeway-only access (Galveston)=40-55. Limited heavy vehicle access=30-50. Poor=5-25.
 DEMAND_COMPOSITE = logistics_hub*0.30 + last_mile*0.25 + cargo_network*0.20 + priority_freight*0.15 + ground_access*0.10.`,
 
     combo: `DEMAND CRITERIA (CARGO + PASSENGER COMBO):
 LOGISTICS_HUB (25%): Logistics/fulfillment infrastructure — score same scale as cargo mode.
 EMPLOYMENT (25%): Employment density AND major passenger destinations combined. Business districts with logistics workers=80-100. Suburban commercial=45-70. Residential=10-30.
-CARGO_NETWORK (20%): Freight network value AND transit connectivity. Airport/port adjacent=85-100. Good highway + transit=55-75. Car-dependent=25-50.
+CARGO_NETWORK (20%): Freight network value AND transit connectivity. On-port or airport adjacent=88-100. Good highway + transit=55-75. Car-dependent=25-50.
 PRIORITY_FREIGHT (15%): Medical supply routes AND hospital/institutional passenger demand combined. TMC area=85-100. Regional hospital + freight=55-75. Neither=10-30.
 LAST_MILE (15%): Last-mile delivery demand AND transit gap for passengers combined. Dense urban=80-100. Suburban=45-65. Rural=10-30.
 DEMAND_COMPOSITE = logistics_hub*0.25 + employment*0.25 + cargo_network*0.20 + priority_freight*0.15 + last_mile*0.15.`,
   };
 
   const benchmarks = {
-    passenger: `BENCHMARKS: Will Clayton: site 68-82, demand 45-60. Galleria: site 28-42, demand 62-78. TMC: site 35-55, demand 85-95. IAH airport area: site 35-55, demand 78-90. Residential: site 15-28, demand 15-30.`,
-    cargo:     `BENCHMARKS (cargo): Will Clayton logistics park: site 68-82, demand 70-85. IAH cargo area: site 55-70, demand 75-90. Port Houston area: site 55-72, demand 80-92. TMC (medical supply): site 35-55, demand 72-85.`,
-    combo:     `BENCHMARKS (combo): Will Clayton: site 68-82, demand 60-75. Galleria area: site 28-42, demand 52-68. TMC: site 35-55, demand 78-90.`,
+    passenger: `BENCHMARKS: Will Clayton: site 68-82, demand 45-60. Galleria: site 28-42, demand 62-78. TMC: site 35-55, demand 85-95. IAH airport area: site 35-55, demand 78-90. Galveston cruise terminal: site 45-62, demand 70-85. Residential: site 15-28, demand 15-30.`,
+    cargo:     `BENCHMARKS (cargo): Will Clayton logistics park: site 68-82, demand 70-85. IAH cargo area: site 55-70, demand 75-90. Port Houston/Ship Channel: site 55-72, demand 80-92. Port of Galveston terminal: site 45-62, demand 72-85. Texas City terminal: site 48-65, demand 70-84. TMC (medical supply): site 35-55, demand 72-85.`,
+    combo:     `BENCHMARKS (combo): Will Clayton: site 68-82, demand 60-75. Galleria area: site 28-42, demand 52-68. TMC: site 35-55, demand 78-90. Galveston cruise/cargo terminal: site 45-62, demand 68-82.`,
   };
 
   const demandSchemas = {
