@@ -255,21 +255,39 @@ function computeGrade(site, demand, risks, flyDays, scenario) {
 
 // ── Main Export ─────────────────────────────────���───────────────
 
-export function buildInvestmentSummary(results) {
+export function buildInvestmentSummary(results, evalMode = "passenger") {
   const siteScore = results.site?.composite || 0;
   const demandScore = results.demand?.composite || 0;
   const flyDays = results.flyingDays?.flyingDays || 280;
 
   const scenario = classifyScenario(results);
-  const capexBase = CAPEX_BASE[scenario];
+
+  // Cargo mode: smaller base CAPEX (no passenger terminal) but adjust items
+  const capexBaseRaw = CAPEX_BASE[scenario];
+  const cargoCapexScale = evalMode === "cargo" ? 0.72 : evalMode === "combo" ? 0.88 : 1.0;
+  const capexBase = {
+    low: Math.round(capexBaseRaw.low * cargoCapexScale),
+    mid: Math.round(capexBaseRaw.mid * cargoCapexScale),
+    high: Math.round(capexBaseRaw.high * cargoCapexScale),
+  };
+
   const movements = estimateMovements(results);
   const risks = assessRisks(results);
   const timeline = buildTimeline(results, scenario);
   const grade = computeGrade(siteScore, demandScore, risks, flyDays, scenario);
 
-  // CAPEX breakdown
+  // CAPEX breakdown — swap terminal item for cargo handling dock in cargo/combo mode
   const capexMid = capexBase.mid;
-  const capexBreakdown = CAPEX_ITEMS.map(item => ({
+  const capexItemsAdjusted = CAPEX_ITEMS.map(item => {
+    if (item.id === "terminal" && evalMode === "cargo") {
+      return { ...item, label: "Cargo Dock & Handling Bay", pctRange: [0.05, 0.09] };
+    }
+    if (item.id === "terminal" && evalMode === "combo") {
+      return { ...item, label: "Terminal + Cargo Dock", pctRange: [0.07, 0.12] };
+    }
+    return item;
+  });
+  const capexBreakdown = capexItemsAdjusted.map(item => ({
     ...item,
     low: Math.round(capexBase.low * item.pctRange[0]),
     mid: Math.round(capexMid * ((item.pctRange[0] + item.pctRange[1]) / 2)),
@@ -283,14 +301,23 @@ export function buildInvestmentSummary(results) {
     high: Math.round(capexBase.high * OPEX_PCT.high),
   };
 
-  // Revenue projections
-  const revPerMov = movements.paxPct * (REV_PER_MOVEMENT.passenger + ANCILLARY_PER_PAX) +
-                    movements.cargoPct * REV_PER_MOVEMENT.cargo +
-                    CHARGE_FEE_PER_MOVEMENT;
+  // Revenue projections — cargo ops: higher frequency, lower per-movement revenue
+  // Cargo delivery: ~$25-35/delivery landing fee; passenger: $85 + ancillary
+  const cargoMovMult = evalMode === "cargo" ? 1.8 : evalMode === "combo" ? 1.3 : 1.0;
+  const adjMovements = { ...movements, perDay: Math.round(movements.perDay * cargoMovMult), steadyState: Math.round(movements.steadyState * cargoMovMult), yr1: Math.round(movements.yr1 * cargoMovMult), yr3: Math.round(movements.yr3 * cargoMovMult), yr5: Math.round(movements.yr5 * cargoMovMult) };
+  const effMovements = evalMode === "passenger" ? movements : adjMovements;
+
+  const revPerMov = evalMode === "cargo"
+    ? 30 + CHARGE_FEE_PER_MOVEMENT  // cargo: $30 landing fee + $35 charge = $65/mov
+    : evalMode === "combo"
+    ? 0.55 * 30 + 0.45 * (REV_PER_MOVEMENT.passenger + ANCILLARY_PER_PAX) + CHARGE_FEE_PER_MOVEMENT
+    : movements.paxPct * (REV_PER_MOVEMENT.passenger + ANCILLARY_PER_PAX) +
+      movements.cargoPct * REV_PER_MOVEMENT.cargo +
+      CHARGE_FEE_PER_MOVEMENT;
   const revenue = {
-    yr1: Math.round(movements.yr1 * revPerMov),
-    yr3: Math.round(movements.yr3 * revPerMov),
-    yr5: Math.round(movements.yr5 * revPerMov),
+    yr1: Math.round(effMovements.yr1 * revPerMov),
+    yr3: Math.round(effMovements.yr3 * revPerMov),
+    yr5: Math.round(effMovements.yr5 * revPerMov),
     perMovement: Math.round(revPerMov),
   };
 
@@ -305,7 +332,7 @@ export function buildInvestmentSummary(results) {
   let npv = -capexMid;
   for (let yr = 1; yr <= 10; yr++) {
     const rampFactor = yr <= 1 ? 0.25 : yr <= 2 ? 0.40 : yr <= 3 ? 0.55 : yr <= 5 ? 0.80 : 0.90;
-    const yearRev = movements.steadyState * revPerMov * rampFactor;
+    const yearRev = effMovements.steadyState * revPerMov * rampFactor;
     const yearOpex = opex.mid * (0.85 + yr * 0.015); // slight opex escalation
     const netCF = yearRev - yearOpex;
     npv += netCF / Math.pow(1 + discountRate, yr);
@@ -325,7 +352,7 @@ export function buildInvestmentSummary(results) {
     grade,
     capex: { low: capexBase.low, mid: capexMid, high: capexBase.high, breakdown: capexBreakdown },
     opex,
-    movements,
+    movements: effMovements,
     revenue,
     paybackYears,
     npv,

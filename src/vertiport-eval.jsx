@@ -25,12 +25,63 @@ const scoreColor = (s) => {
 
 const priorityIndex = (site, demand) => Math.round(site * 0.60 + demand * 0.40);
 
-function getQuadrant(site, demand) {
+// ── Demand criteria config — drives display, PDF, and prompt ──
+const DEMAND_CRITERIA = {
+  passenger: [
+    { key:"employment",       label:"Employment Density",          wt:"30%", icon:"🏢" },
+    { key:"destinations",     label:"Destinations & Attractions",  wt:"25%", icon:"📍" },
+    { key:"medical",          label:"Medical & Institutional",     wt:"20%", icon:"🏥" },
+    { key:"cargo",            label:"Cargo & Logistics",           wt:"15%", icon:"📦" },
+    { key:"transit_gap",      label:"Transit Gap",                 wt:"10%", icon:"🚌" },
+  ],
+  cargo: [
+    { key:"logistics_hub",    label:"Logistics Infrastructure",    wt:"30%", icon:"🏭" },
+    { key:"last_mile",        label:"Last-Mile Demand",            wt:"25%", icon:"📦" },
+    { key:"cargo_network",    label:"Cargo Network Value",         wt:"20%", icon:"✈" },
+    { key:"priority_freight", label:"Priority Freight",            wt:"15%", icon:"⚡" },
+    { key:"ground_access",    label:"Ground Access",               wt:"10%", icon:"🚛" },
+  ],
+  combo: [
+    { key:"logistics_hub",    label:"Logistics Infrastructure",    wt:"25%", icon:"🏭" },
+    { key:"employment",       label:"Employment & Destinations",   wt:"25%", icon:"🏢" },
+    { key:"cargo_network",    label:"Cargo Network",               wt:"20%", icon:"✈" },
+    { key:"priority_freight", label:"Priority / Medical Cargo",    wt:"15%", icon:"⚡" },
+    { key:"last_mile",        label:"Last-Mile + Transit",         wt:"15%", icon:"📦" },
+  ],
+};
+
+const DEMAND_HEADER = {
+  passenger: "DEMAND SCORE — WHY FLY HERE?",
+  cargo:     "DEMAND SCORE — WHY SHIP HERE?",
+  combo:     "DEMAND SCORE — WHY FLY & SHIP HERE?",
+};
+
+function getQuadrant(site, demand, evalMode = "passenger") {
   const hs = site >= 55, hd = demand >= 55;
-  if (hs && hd)  return { label:"PRIME SITE",          color:C.green,  desc:"Strong infrastructure and high demand. Priority development candidate." };
-  if (hs && !hd) return { label:"INFRASTRUCTURE PLAY", color:C.teal,   desc:"Good site fundamentals, limited demand. Suited for cargo-first or logistics." };
-  if (!hs && hd) return { label:"DEMAND WITHOUT SITE", color:C.yellow, desc:"Strong destination appeal but site constraints limit operations. Find a nearby parcel." };
-  return                 { label:"LOW PRIORITY",        color:C.red,    desc:"Neither site fundamentals nor demand justify development at this time." };
+  const desc = {
+    passenger: {
+      pp:"Strong infrastructure and high demand. Priority development candidate.",
+      pn:"Good site fundamentals, limited demand. Suited for cargo-first or logistics.",
+      np:"Strong destination appeal but site constraints limit operations. Find a nearby parcel.",
+      nn:"Neither site fundamentals nor demand justify development at this time.",
+    },
+    cargo: {
+      pp:"Prime cargo vertiport candidate. Strong logistics demand meets viable site.",
+      pn:"Excellent infrastructure, developing logistics demand. Position early for cargo hub.",
+      np:"High cargo demand but site constraints. Seek larger parcel or rooftop option.",
+      nn:"Neither site fundamentals nor cargo demand justify development at this time.",
+    },
+    combo: {
+      pp:"Prime mixed-use vertiport. Serves both cargo logistics and passenger demand.",
+      pn:"Strong site, developing demand. Position early — cargo with passenger upside.",
+      np:"Strong combined demand but site limits both cargo and passenger operations.",
+      nn:"Low priority for cargo/passenger combo development at this time.",
+    },
+  }[evalMode] || {};
+  if (hs && hd)  return { label:"PRIME SITE",          color:C.green,  desc:desc.pp };
+  if (hs && !hd) return { label:"INFRASTRUCTURE PLAY", color:C.teal,   desc:desc.pn };
+  if (!hs && hd) return { label:"DEMAND WITHOUT SITE", color:C.yellow, desc:desc.np };
+  return                 { label:"LOW PRIORITY",        color:C.red,    desc:desc.nn };
 }
 
 // ── PDF Generation ─────────────────────────────────────────
@@ -69,7 +120,8 @@ function generatePDF(results) {
   doc.setFontSize(8);
   doc.setFont("helvetica","normal");
   setTxt("#daeaf6");
-  doc.text("SITE EVALUATION SYSTEM  ·  FAA/NREL CALIBRATED  ·  TEXAS BETA", col + 6, 20);
+  const modeLabel = results.evalMode === "cargo" ? "CARGO" : results.evalMode === "combo" ? "CARGO + PAX" : "PASSENGER";
+  doc.text(`SITE EVALUATION SYSTEM  ·  ${modeLabel}  ·  FAA/NREL CALIBRATED  ·  TEXAS BETA`, col + 6, 20);
 
   setTxt("#daeaf6");
   doc.setFontSize(7.5);
@@ -224,16 +276,15 @@ function generatePDF(results) {
   });
 
   // ── Demand criteria ──
+  const em = results.evalMode || "passenger";
   y += 3;
-  y = sectionHeader("DEMAND SCORE — WHY FLY HERE?", y);
+  y = sectionHeader(DEMAND_HEADER[em] || "DEMAND SCORE — WHY FLY HERE?", y);
 
-  const demandCriteria = [
-    { label:"Employment Density",      wt:"30%", score:results.demand?.employment?.score,   notes:results.demand?.employment?.notes },
-    { label:"Destinations & Attractions", wt:"25%", score:results.demand?.destinations?.score, notes:results.demand?.destinations?.notes },
-    { label:"Medical & Institutional", wt:"20%", score:results.demand?.medical?.score,      notes:results.demand?.medical?.notes },
-    { label:"Cargo & Logistics",       wt:"15%", score:results.demand?.cargo?.score,        notes:results.demand?.cargo?.notes },
-    { label:"Transit Gap",             wt:"10%", score:results.demand?.transit_gap?.score,  notes:results.demand?.transit_gap?.notes },
-  ];
+  const demandCriteria = (DEMAND_CRITERIA[em] || DEMAND_CRITERIA.passenger).map(cr => ({
+    label: cr.label, wt: cr.wt,
+    score: results.demand?.[cr.key]?.score ?? null,
+    notes: results.demand?.[cr.key]?.notes,
+  }));
 
   demandCriteria.forEach((cr) => {
     const rowH = 13;
@@ -584,42 +635,78 @@ function generatePDF(results) {
 }
 
 // ── Prompt builder ────────────────────────────────────────────
-function buildPrompt(input, mode) {
-  const locationDesc = mode === "coords"
-    ? `GPS Coordinates: ${input.lat}, ${input.lon} (Houston Texas)${input.label ? ` — Site: ${input.label}` : ""}`
+function buildPrompt(input, inputMode, evalMode = "passenger") {
+  const locationDesc = inputMode === "coords"
+    ? `GPS Coordinates: ${input.lat}, ${input.lon} (Texas)${input.label ? ` — Site: ${input.label}` : ""}`
     : `Address: "${input.address}"`;
-  const coordNote = mode === "coords"
+  const coordNote = inputMode === "coords"
     ? `IMPORTANT: Evaluate what is actually at these coordinates. For parks or open land score parcel based on actual site area not adjacent residential lot.` : ``;
 
-  return `You are a vertiport site feasibility scoring engine. Score two axes: SITE (can infrastructure be built here?) and DEMAND (why would people/cargo fly here?).
-
-Location: ${locationDesc}
-${coordNote}
-
-SITE CRITERIA:
+  const siteCriteria = `SITE CRITERIA:
 PARCEL (25%): >10ac=90-100, 5-10=80-90, 2-5=60-75, 0.5-2=25-45, <0.5=5-20. Flag <1.5ac.
 AIRSPACE (25%): Rural no airport=90-100. Humble/Will Clayton Class G IAH 18km=72-82. Suburban GA 10-20km=70-85. Heliport nearby=50-65. SW Houston near HOU 5-6km=32-42. Galleria Class B=18-28. IAH Class B=10-22.
 ZONING (15%): Industrial/logistics=88-100. Business park=65-80. Public park/greenspace=55-70. Mixed commercial=45-62. Galleria/luxury retail=22-35. Residential=8-22.
 SOIL (10%): Zone X=85-98. Stormwater detention=35-50. Zone AE=18-35. Humble Zone X=82-92.
-SITE_COMPOSITE = parcel*0.25 + airspace*0.25 + zoning*0.15 + soil*0.10. Max=75.
+SITE_COMPOSITE = parcel*0.25 + airspace*0.25 + zoning*0.15 + soil*0.10. Max=75.`;
 
-DEMAND CRITERIA:
+  const demandSections = {
+    passenger: `DEMAND CRITERIA:
 EMPLOYMENT (30%): CBD/Energy Corridor/major hub=80-100. Business park=55-75. Mixed=30-50. Residential/park=5-25.
 DESTINATIONS (25%): Stadium/arena/convention=85-100. Outdoor venue/major park/museum=55-75. Willow Waterhole with music venue=58-70. Industrial=5-20.
 MEDICAL (20%): Texas Medical Center=90-100. Regional hospital=60-80. Clinic=25-45. None=5-20.
 CARGO (15%): Port/major hub=85-100. Industrial corridor=60-80. Humble/Will Clayton logistics=75-90. Residential/park=5-20.
 TRANSIT_GAP (10%): Remote/car-dependent=70-90. Suburban limited transit=50-70. Near Metro rail=10-30.
-DEMAND_COMPOSITE = employment*0.30 + destinations*0.25 + medical*0.20 + cargo*0.15 + transit_gap*0.10.
+DEMAND_COMPOSITE = employment*0.30 + destinations*0.25 + medical*0.20 + cargo*0.15 + transit_gap*0.10.`,
 
-BENCHMARKS: Will Clayton: site 68-82, demand 45-60. Galleria: site 28-42, demand 62-78. TMC: site 35-55, demand 85-95. Residential: site 15-28, demand 15-30.
+    cargo: `DEMAND CRITERIA (CARGO OPERATIONS):
+LOGISTICS_HUB (30%): Major fulfillment/distribution center adjacent=85-100. Industrial/logistics park=65-82. Near freight corridor=45-65. Commercial=25-45. Residential=5-20.
+LAST_MILE (25%): Dense urban delivery demand (pop >50K in 5nm)=80-100. Suburban e-commerce density=55-75. Mixed delivery zone=35-55. Low density=10-30.
+CARGO_NETWORK (20%): Adjacent to major freight airport or port=85-100. Near intermodal terminal=65-80. Near major highway interchange=50-65. Suburban access=35-50. No freight infra=10-25.
+PRIORITY_FREIGHT (15%): On medical/pharma supply route (TMC area)=80-100. Cold chain/perishables hub=65-80. High-value cargo corridor=50-65. General freight=25-45. None=5-20.
+GROUND_ACCESS (10%): Direct truck dock + highway ramp=80-100. Good road network=55-75. Limited heavy vehicle access=30-50. Poor=5-25.
+DEMAND_COMPOSITE = logistics_hub*0.30 + last_mile*0.25 + cargo_network*0.20 + priority_freight*0.15 + ground_access*0.10.`,
+
+    combo: `DEMAND CRITERIA (CARGO + PASSENGER COMBO):
+LOGISTICS_HUB (25%): Logistics/fulfillment infrastructure — score same scale as cargo mode.
+EMPLOYMENT (25%): Employment density AND major passenger destinations combined. Business districts with logistics workers=80-100. Suburban commercial=45-70. Residential=10-30.
+CARGO_NETWORK (20%): Freight network value AND transit connectivity. Airport/port adjacent=85-100. Good highway + transit=55-75. Car-dependent=25-50.
+PRIORITY_FREIGHT (15%): Medical supply routes AND hospital/institutional passenger demand combined. TMC area=85-100. Regional hospital + freight=55-75. Neither=10-30.
+LAST_MILE (15%): Last-mile delivery demand AND transit gap for passengers combined. Dense urban=80-100. Suburban=45-65. Rural=10-30.
+DEMAND_COMPOSITE = logistics_hub*0.25 + employment*0.25 + cargo_network*0.20 + priority_freight*0.15 + last_mile*0.15.`,
+  };
+
+  const benchmarks = {
+    passenger: `BENCHMARKS: Will Clayton: site 68-82, demand 45-60. Galleria: site 28-42, demand 62-78. TMC: site 35-55, demand 85-95. Residential: site 15-28, demand 15-30.`,
+    cargo:     `BENCHMARKS (cargo): Will Clayton logistics park: site 68-82, demand 70-85. IAH cargo area: site 55-70, demand 75-90. Port Houston area: site 55-72, demand 80-92. TMC (medical supply): site 35-55, demand 72-85.`,
+    combo:     `BENCHMARKS (combo): Will Clayton: site 68-82, demand 60-75. Galleria area: site 28-42, demand 52-68. TMC: site 35-55, demand 78-90.`,
+  };
+
+  const demandSchemas = {
+    passenger: `"demand":{"composite":0,"employment":{"score":0,"notes":"short note"},"destinations":{"score":0,"notes":"short note"},"medical":{"score":0,"notes":"short note"},"cargo":{"score":0,"notes":"short note"},"transit_gap":{"score":0,"notes":"short note"}}`,
+    cargo:     `"demand":{"composite":0,"logistics_hub":{"score":0,"notes":"short note"},"last_mile":{"score":0,"notes":"short note"},"cargo_network":{"score":0,"notes":"short note"},"priority_freight":{"score":0,"notes":"short note"},"ground_access":{"score":0,"notes":"short note"}}`,
+    combo:     `"demand":{"composite":0,"logistics_hub":{"score":0,"notes":"short note"},"employment":{"score":0,"notes":"short note"},"cargo_network":{"score":0,"notes":"short note"},"priority_freight":{"score":0,"notes":"short note"},"last_mile":{"score":0,"notes":"short note"}}`,
+  };
+
+  const em = evalMode in demandSchemas ? evalMode : "passenger";
+
+  return `You are a vertiport site feasibility scoring engine. Evaluation mode: ${em.toUpperCase()}. Score two axes: SITE (can infrastructure be built here?) and DEMAND.
+
+Location: ${locationDesc}
+${coordNote}
+
+${siteCriteria}
+
+${demandSections[em]}
+
+${benchmarks[em]}
 
 Return ONLY valid JSON, keep ALL string values under 80 chars:
-{"geocode":{"matched":"location name","lat":29.76,"lon":-95.37,"valid":true},"site":{"composite":0,"parcel":{"score":0,"acreage_estimate":0.0,"land_type":"type","notes":"short note","flags":["flag"]},"airspace":{"score":0,"status":"class","laanc_required":false,"nearest_airport":"name dist","notes":"short note","flags":[]},"zoning":{"score":0,"compliance":"Good","land_use":"type","notes":"short note","flags":[]},"soil":{"score":0,"flood_zone":"Zone X","slope_estimate":"<1%","elevation_ft":50,"notes":"short note","flags":[]}},"demand":{"composite":0,"employment":{"score":0,"notes":"short note"},"destinations":{"score":0,"notes":"short note"},"medical":{"score":0,"notes":"short note"},"cargo":{"score":0,"notes":"short note"},"transit_gap":{"score":0,"notes":"short note"}},"summary":"2 sentences max","development_thesis":"one sentence best use case","top_strengths":["strength 1","strength 2"],"top_concerns":["concern 1"]}
+{"geocode":{"matched":"location name","lat":29.76,"lon":-95.37,"valid":true},"site":{"composite":0,"parcel":{"score":0,"acreage_estimate":0.0,"land_type":"type","notes":"short note","flags":["flag"]},"airspace":{"score":0,"status":"class","laanc_required":false,"nearest_airport":"name dist","notes":"short note","flags":[]},"zoning":{"score":0,"compliance":"Good","land_use":"type","notes":"short note","flags":[]},"soil":{"score":0,"flood_zone":"Zone X","slope_estimate":"<1%","elevation_ft":50,"notes":"short note","flags":[]}},${demandSchemas[em]},"summary":"2 sentences max","development_thesis":"one sentence best use case","top_strengths":["strength 1","strength 2"],"top_concerns":["concern 1"]}
 
 If outside Texas set geocode.valid=false and all scores to 0.`;
 }
 
-async function analyzeWithClaude(input, mode) {
+async function analyzeWithClaude(input, inputMode, evalMode = "passenger") {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35000);
   try {
@@ -633,7 +720,7 @@ async function analyzeWithClaude(input, mode) {
         "anthropic-version": "2023-06-01",
         "anthropic-dangerous-direct-browser-access": "true",
       },
-      body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2000, messages:[{role:"user",content:buildPrompt(input,mode)}] }),
+      body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2000, messages:[{role:"user",content:buildPrompt(input,inputMode,evalMode)}] }),
     });
     clearTimeout(timeout);
     if (!response.ok) { const t=await response.text(); throw new Error(`API ${response.status}: ${t.slice(0,120)}`); }
@@ -1929,6 +2016,7 @@ export default function App() {
   const [pdfGenerating,setPdfGenerating]=useState(false);
   const [mapView,setMapView]=useState("2d");
   const [approachBearing,setApproachBearing]=useState(0);
+  const [demandTab,setDemandTab]=useState("passenger");
 
   if (!gated) return <LandingPage onStart={() => setGated(true)} />;
 
@@ -1937,28 +2025,8 @@ export default function App() {
   async function run(){
     if(!canRun)return;
 
-    // ── Rate limiting (localStorage) ──────────────────────────
-    const RL_KEY      = "veval_rl";
-    const DAILY_LIMIT = 10;
-    const COOLDOWN_MS = 30_000; // 30 seconds between runs
-    const DAY_MS      = 86_400_000;
-    const now         = Date.now();
-    const rl          = JSON.parse(localStorage.getItem(RL_KEY) || "[]");
-    const last        = rl.at(-1) ?? 0;
-    const cooldownLeft = Math.ceil((last + COOLDOWN_MS - now) / 1000);
-    if (cooldownLeft > 0) {
-      setError(`Please wait ${cooldownLeft}s before running another evaluation.`);
-      setPhase("error"); return;
-    }
-    const today = rl.filter(ts => now - ts < DAY_MS);
-    if (today.length >= DAILY_LIMIT) {
-      const resetIn = Math.ceil((today[0] + DAY_MS - now) / 3_600_000 * 10) / 10;
-      setError(`Daily limit of ${DAILY_LIMIT} evaluations reached. Resets in ${resetIn}h.`);
-      setPhase("error"); return;
-    }
-    today.push(now);
-    localStorage.setItem(RL_KEY, JSON.stringify(today));
-    // ─────────────────────────────────────────────────────────
+    // ── Rate limiting — disabled for development ───────────────
+    // ──────────────────────────────────────────────────────────
 
     if(results)setPrevious(results);
     setPhase("loading");setResults(null);setError(null);
@@ -1967,96 +2035,112 @@ export default function App() {
     const setL=(i,msg,s)=>{logs[i]={msg,s};setLog([...logs]);};
     try{
       let input;
-      if(mode==="coords"){const c=parseCoords(lat,lon);if(!c)throw new Error("Invalid coordinates. Houston is ~29-30°N, -95 to -96°W.");input={lat:c.lat,lon:c.lon,label:siteLabel||`${c.lat}, ${c.lon}`};addL(`Coordinates: ${c.lat.toFixed(5)}°N, ${Math.abs(c.lon).toFixed(5)}°W`);}
+      if(mode==="coords"){const c=parseCoords(lat,lon);if(!c)throw new Error("Invalid coordinates. Texas is ~26-36°N, -94 to -107°W.");input={lat:c.lat,lon:c.lon,label:siteLabel||`${c.lat}, ${c.lon}`};addL(`Coordinates: ${c.lat.toFixed(5)}°N, ${Math.abs(c.lon).toFixed(5)}°W`);}
       else{input={address:address.trim()};addL(`Geocoding: ${address.trim()}`);}
-      addL("Running site + demand analysis...");addL("Applying FAA/NREL scoring model...");
-      const data=await analyzeWithClaude(input,mode);
-      if(!data.geocode?.valid)throw new Error("Location not recognized as a Texas site.");
-      // Heliport lookup — FAA NASR data, 500m radius
-      const heli = findNearestHeliport(data.geocode.lat, data.geocode.lon, 500);
-      const siteBoost = heli.site_boost || 0;
-      const demandBoost = heli.demand_boost || 0;
-      if (data.site) data.site.composite = Math.min(100, Math.round((data.site.composite||0) + siteBoost));
-      if (data.demand) data.demand.composite = Math.min(100, Math.round((data.demand.composite||0) + demandBoost));
 
-      setL(0,`Resolved → ${data.geocode.lat?.toFixed(5)}°N, ${Math.abs(data.geocode.lon)?.toFixed(5)}°W`,"done");
-      const heliNote = siteBoost > 0 ? ` · heliport +${siteBoost}/${demandBoost}` : "";
-      setL(1,`Site: ${data.site?.composite} | Demand: ${data.demand?.composite} | PI: ${priorityIndex(data.site?.composite||0,data.demand?.composite||0)}${heliNote}`,"done");
-      setL(2,`Quadrant: ${getQuadrant(data.site?.composite||0,data.demand?.composite||0).label}`,"done");
-      if (siteBoost > 0) addL(`Heliport: ${heli.name} · ${heli.distance_m}m · +${siteBoost} site / +${demandBoost} demand`,"done");
-      // Flying days estimate — NOAA climate normals
-      const flyData = estimateFlyingDays(data.geocode.lat, data.geocode.lon);
-      addL(`Flying days: ${flyData.flyingDays}/yr · ${flyData.rating}`,"done");
-      // FAA airspace — synchronous, no API call
-      const airspaceResult = scoreAirspace(data.geocode.lat, data.geocode.lon);
-      const oldAirspaceScore = data.site?.airspace?.score || 0;
-      data.site.airspace = { ...data.site.airspace, ...airspaceResult };
-      data.site.composite = Math.min(100, Math.round(
-        (data.site?.composite || 0) - (oldAirspaceScore * 0.25) + (airspaceResult.score * 0.25)
-      ));
-      addL(`FAA → ${airspaceResult.status} · score ${airspaceResult.score}/100 · ${airspaceResult.nearest_airport}`, "done");
-      const eiaLogIdx  = logs.length; addL("EIA power grid layer → fetching...","running");
-      const nrelLogIdx = logs.length; addL("NREL community DER layer → fetching...","running");
-      const hcadLogIdx = logs.length; addL("Harris County parcel → fetching...","running");
-      const femaLogIdx = logs.length; addL("FEMA NFHL + USGS elevation → fetching...","running");
-      const osmLogIdx  = logs.length; addL("OSM zoning → fetching...","running");
-      const flags=[...(data.site?.parcel?.flags||[]),...(data.site?.airspace?.flags||[]),...(data.site?.zoning?.flags||[]),...(data.site?.soil?.flags||[])];
-      const [eiaSettled, nrelSettled, hcadSettled, femaSettled, osmSettled] = await Promise.allSettled([
-        fetchEIAPowerScore(data.geocode.lat, data.geocode.lon, data.site?.zoning?.score || 50),
-        fetchNRELDERScore(data.geocode.lat, data.geocode.lon),
-        fetchHarrisParcelScore(data.geocode.lat, data.geocode.lon),
-        fetchFEMAFloodScore(data.geocode.lat, data.geocode.lon),
-        fetchZoningScore(data.geocode.lat, data.geocode.lon),
+      // ── Three parallel Claude calls — one per demand mode ──
+      const analysisIdx=logs.length; addL("Running passenger · cargo · combo analysis in parallel...","running");
+      const [paxS,cargoS,comboS]=await Promise.allSettled([
+        analyzeWithClaude(input,mode,"passenger"),
+        analyzeWithClaude(input,mode,"cargo"),
+        analyzeWithClaude(input,mode,"combo"),
       ]);
-      const eia  = eiaSettled.status  === "fulfilled" ? eiaSettled.value  : null;
-      const nrel = nrelSettled.status === "fulfilled" ? nrelSettled.value : null;
-      const hcad = hcadSettled.status === "fulfilled" ? hcadSettled.value : null;
-      const fema = femaSettled.status === "fulfilled" ? femaSettled.value : null;
-      const osm  = osmSettled.status  === "fulfilled" ? osmSettled.value  : null;
-      if (eia)  setL(eiaLogIdx,  `EIA → Power Grid & DER: ${eia.score}/100`,  "done");
-      else      setL(eiaLogIdx,  `EIA → ${eiaSettled.reason?.message||"fetch failed"}`, "warn");
-      if (nrel) setL(nrelLogIdx, `NREL → Community DER: ${nrel.score}/100`,   "done");
-      else      setL(nrelLogIdx, `NREL → ${nrelSettled.reason?.message||"fetch failed"}`, "warn");
-      if (hcad) {
-        setL(hcadLogIdx, `HCAD → Parcel: ${hcad.acreage_estimate} ac · score ${hcad.score}/100`, "done");
-        const oldParcelScore = data.site?.parcel?.score || 0;
-        data.site.parcel = { ...data.site.parcel, ...hcad };
-        data.site.composite = Math.min(100, Math.round(
-          (data.site?.composite || 0) - (oldParcelScore * 0.25) + (hcad.score * 0.25)
-        ));
-      } else {
-        setL(hcadLogIdx, `HCAD → ${hcadSettled.reason?.message || "fetch failed"}`, "warn");
-      }
-      if (fema) {
-        const elevNote = fema.elevation_ft !== null ? ` · ${fema.elevation_ft} ft elev` : "";
-        setL(femaLogIdx, `FEMA → ${fema.flood_zone} · score ${fema.score}/100${elevNote}`, "done");
-        const oldSoilScore = data.site?.soil?.score || 0;
-        data.site.soil = { ...data.site.soil, ...fema };
-        data.site.composite = Math.min(100, Math.round(
-          (data.site?.composite || 0) - (oldSoilScore * 0.10) + (fema.score * 0.10)
-        ));
-        flags.push(...(fema.flags || []));
-      } else {
-        setL(femaLogIdx, `FEMA → ${femaSettled.reason?.message || "fetch failed"}`, "warn");
-      }
-      if (osm) {
-        setL(osmLogIdx, `OSM → ${osm.land_use} (${osm._raw}) · score ${osm.score}/100`, "done");
-        const oldZoningScore = data.site?.zoning?.score || 0;
-        data.site.zoning = { ...data.site.zoning, ...osm };
-        data.site.composite = Math.min(100, Math.round(
-          (data.site?.composite || 0) - (oldZoningScore * 0.15) + (osm.score * 0.15)
-        ));
-        flags.push(...(osm.flags || []));
-      } else {
-        setL(osmLogIdx, `OSM → ${osmSettled.reason?.message || "fetch failed"}`, "warn");
-      }
-      const fullResults = {...data,flags,eia,nrel,hcad,fema,osm,heliport:heli,flyingDays:flyData};
-      const regChecklist = buildRegulatoryChecklist(fullResults);
-      addL(`Regulatory checklist: ${regChecklist.filter(r=>r.status==="required").length} required, ${regChecklist.filter(r=>r.urgency==="critical").length} critical`,"done");
-      fullResults.regulatory = regChecklist;
-      const investment = buildInvestmentSummary(fullResults);
-      addL(`Investment: Grade ${investment.grade.grade} (${investment.grade.gradeLabel}) · CAPEX $${(investment.capex.mid/1e6).toFixed(1)}M · Payback ${investment.paybackYears ? investment.paybackYears+"yr" : "N/A"}`,"done");
-      fullResults.investment = investment;
+      const firstOk=[paxS,cargoS,comboS].find(s=>s.status==="fulfilled"&&s.value?.geocode?.valid);
+      if(!firstOk) throw new Error("Location analysis failed. Check API key and try again.");
+      const base=firstOk.value;
+      setL(analysisIdx,`Resolved → ${base.geocode.lat?.toFixed(5)}°N, ${Math.abs(base.geocode.lon)?.toFixed(5)}°W`,"done");
+
+      const get=(s,fb)=>s.status==="fulfilled"?s.value:fb;
+      const paxData=get(paxS,base), cargoData=get(cargoS,base), comboData=get(comboS,base);
+
+      // ── Heliport lookup (shared) ───────────────────────────
+      const heli=findNearestHeliport(base.geocode.lat,base.geocode.lon,500);
+      const siteBoost=heli.site_boost||0, demandBoost=heli.demand_boost||0;
+      const heliNote=siteBoost>0?` · heliport +${siteBoost}/${demandBoost}`:"";
+
+      // Shared site (use base, apply site boost)
+      const siteData={...base.site};
+      siteData.composite=Math.min(100,Math.round((siteData.composite||0)+siteBoost));
+
+      // Per-mode demand with heliport boost
+      const bd=(d)=>({...d,composite:Math.min(100,Math.round((d?.composite||0)+demandBoost))});
+      const paxDemand=bd(paxData.demand), cargoDemand=bd(cargoData.demand), comboDemand=bd(comboData.demand);
+      addL(`PAX demand: ${paxDemand?.composite} · Cargo: ${cargoDemand?.composite} · Combo: ${comboDemand?.composite}${heliNote}`,"done");
+      if(siteBoost>0) addL(`Heliport: ${heli.name} · ${heli.distance_m}m · +${siteBoost} site / +${demandBoost} demand`,"done");
+
+      // ── Flying days (shared) ───────────────────────────────
+      const flyData=estimateFlyingDays(base.geocode.lat,base.geocode.lon);
+      addL(`Flying days: ${flyData.flyingDays}/yr · ${flyData.rating}`,"done");
+
+      // ── FAA airspace (shared, synchronous) ────────────────
+      const airspaceResult=scoreAirspace(base.geocode.lat,base.geocode.lon);
+      const oldAir=siteData?.airspace?.score||0;
+      siteData.airspace={...siteData.airspace,...airspaceResult};
+      siteData.composite=Math.min(100,Math.round((siteData?.composite||0)-(oldAir*0.25)+(airspaceResult.score*0.25)));
+      addL(`FAA → ${airspaceResult.status} · score ${airspaceResult.score}/100 · ${airspaceResult.nearest_airport}`,"done");
+
+      // ── Live APIs (shared) ─────────────────────────────────
+      const eiaIdx=logs.length;  addL("EIA power grid → fetching...","running");
+      const nrelIdx=logs.length; addL("NREL DER layer → fetching...","running");
+      const hcadIdx=logs.length; addL("Harris County parcel → fetching...","running");
+      const femaIdx=logs.length; addL("FEMA NFHL + elevation → fetching...","running");
+      const osmIdx=logs.length;  addL("OSM zoning → fetching...","running");
+      const flags=[...(siteData?.parcel?.flags||[]),...(siteData?.airspace?.flags||[]),...(siteData?.zoning?.flags||[]),...(siteData?.soil?.flags||[])];
+      const [eiaS,nrelS,hcadS,femaS,osmS]=await Promise.allSettled([
+        fetchEIAPowerScore(base.geocode.lat,base.geocode.lon,siteData?.zoning?.score||50),
+        fetchNRELDERScore(base.geocode.lat,base.geocode.lon),
+        fetchHarrisParcelScore(base.geocode.lat,base.geocode.lon),
+        fetchFEMAFloodScore(base.geocode.lat,base.geocode.lon),
+        fetchZoningScore(base.geocode.lat,base.geocode.lon),
+      ]);
+      const eia=eiaS.status==="fulfilled"?eiaS.value:null;
+      const nrel=nrelS.status==="fulfilled"?nrelS.value:null;
+      const hcad=hcadS.status==="fulfilled"?hcadS.value:null;
+      const fema=femaS.status==="fulfilled"?femaS.value:null;
+      const osm=osmS.status==="fulfilled"?osmS.value:null;
+      if(eia)  setL(eiaIdx, `EIA → Power Grid & DER: ${eia.score}/100`,"done");
+      else     setL(eiaIdx, `EIA → ${eiaS.reason?.message||"fetch failed"}`,"warn");
+      if(nrel) setL(nrelIdx,`NREL → Community DER: ${nrel.score}/100`,"done");
+      else     setL(nrelIdx,`NREL → ${nrelS.reason?.message||"fetch failed"}`,"warn");
+      if(hcad){
+        setL(hcadIdx,`HCAD → Parcel: ${hcad.acreage_estimate} ac · score ${hcad.score}/100`,"done");
+        const oldP=siteData?.parcel?.score||0;
+        siteData.parcel={...siteData.parcel,...hcad};
+        siteData.composite=Math.min(100,Math.round((siteData?.composite||0)-(oldP*0.25)+(hcad.score*0.25)));
+      } else setL(hcadIdx,`HCAD → ${hcadS.reason?.message||"fetch failed"}`,"warn");
+      if(fema){
+        const elevNote=fema.elevation_ft!==null?` · ${fema.elevation_ft} ft elev`:"";
+        setL(femaIdx,`FEMA → ${fema.flood_zone} · score ${fema.score}/100${elevNote}`,"done");
+        const oldF=siteData?.soil?.score||0;
+        siteData.soil={...siteData.soil,...fema};
+        siteData.composite=Math.min(100,Math.round((siteData?.composite||0)-(oldF*0.10)+(fema.score*0.10)));
+        flags.push(...(fema.flags||[]));
+      } else setL(femaIdx,`FEMA → ${femaS.reason?.message||"fetch failed"}`,"warn");
+      if(osm){
+        setL(osmIdx,`OSM → ${osm.land_use} (${osm._raw}) · score ${osm.score}/100`,"done");
+        const oldZ=siteData?.zoning?.score||0;
+        siteData.zoning={...siteData.zoning,...osm};
+        siteData.composite=Math.min(100,Math.round((siteData?.composite||0)-(oldZ*0.15)+(osm.score*0.15)));
+        flags.push(...(osm.flags||[]));
+      } else setL(osmIdx,`OSM → ${osmS.reason?.message||"fetch failed"}`,"warn");
+
+      // ── Build per-mode results ─────────────────────────────
+      const sharedBase={geocode:base.geocode,site:siteData,flags,eia,nrel,hcad,fema,osm,heliport:heli,flyingDays:flyData};
+      const buildMode=(modeClaudeData,demandObj,em)=>{
+        const ctx={...sharedBase,demand:demandObj,evalMode:em};
+        const reg=buildRegulatoryChecklist(ctx,em);
+        const inv=buildInvestmentSummary(ctx,em);
+        addL(`${em}: demand ${demandObj?.composite} · grade ${inv.grade.grade} · CAPEX $${(inv.capex.mid/1e6).toFixed(1)}M`,"done");
+        return{demand:demandObj,summary:modeClaudeData.summary,development_thesis:modeClaudeData.development_thesis,top_strengths:modeClaudeData.top_strengths,top_concerns:modeClaudeData.top_concerns,regulatory:reg,investment:inv};
+      };
+      const fullResults={
+        ...sharedBase,
+        modes:{
+          passenger:buildMode(paxData,  paxDemand,  "passenger"),
+          cargo:    buildMode(cargoData,cargoDemand,"cargo"),
+          combo:    buildMode(comboData,comboDemand,"combo"),
+        },
+      };
       setResults(fullResults);setPhase("complete");
     }catch(err){setL(0,`Error: ${err.message}`,"error");setError(err.message);setPhase("error");}
   }
@@ -2064,12 +2148,15 @@ export default function App() {
   async function handleDownloadPDF(){
     if(!results)return;
     setPdfGenerating(true);
-    try{ generatePDF(results); }
+    try{
+      const dr={...results,...(results.modes?.[demandTab]||{}),evalMode:demandTab};
+      generatePDF(dr);
+    }
     catch(err){ console.error("PDF error:",err); alert("PDF generation failed: "+err.message); }
     finally{ setPdfGenerating(false); }
   }
 
-  const reset=()=>{setPhase("idle");setResults(null);setPrevious(null);setLog([]);setAddress("");setLat("");setLon("");setSiteLabel("");setError(null);};
+  const reset=()=>{setPhase("idle");setResults(null);setPrevious(null);setLog([]);setAddress("");setLat("");setLon("");setSiteLabel("");setError(null);setDemandTab("passenger");};
   const tabStyle=(active)=>({background:"transparent",border:`1px solid ${active?C.amber:C.border}`,color:active?C.amber:C.textLabel,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"6px 14px",borderRadius:4,cursor:"pointer",transition:"all 0.15s"});
   const inputStyle={background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textBright,fontFamily:"'IBM Plex Mono',monospace",fontSize:12,padding:"11px 14px"};
 
@@ -2168,12 +2255,33 @@ export default function App() {
 
         {/* Results */}
         {phase==="complete"&&results&&(()=>{
+          const dr={...results,...(results.modes?.[demandTab]||{}),evalMode:demandTab};
           const siteScore=results.site?.composite||0;
-          const demandScore=results.demand?.composite||0;
+          const demandScore=dr.demand?.composite||0;
           const pi=priorityIndex(siteScore,demandScore);
-          const q=getQuadrant(siteScore,demandScore);
+          const q=getQuadrant(siteScore,demandScore,demandTab);
+          const demandSubLabel={passenger:"passenger draw",cargo:"cargo & logistics",combo:"cargo + passenger"}[demandTab]||"demand";
           return (
             <div>
+              {/* Demand mode tabs */}
+              <div style={{display:"flex",gap:6,marginBottom:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"12px 16px",flexWrap:"wrap",alignItems:"center"}}>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginRight:8,flexShrink:0}}>EVALUATION MODE:</div>
+                {[
+                  {id:"passenger",label:"PASSENGER"},
+                  {id:"cargo",    label:"CARGO"},
+                  {id:"combo",    label:"CARGO+PAX"},
+                ].map(m=>{
+                  const mDemand=results.modes?.[m.id]?.demand?.composite||0;
+                  const mPI=priorityIndex(siteScore,mDemand);
+                  const active=demandTab===m.id;
+                  return(
+                    <button key={m.id} onClick={()=>setDemandTab(m.id)} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,letterSpacing:"0.12em",padding:"7px 16px",borderRadius:4,cursor:"pointer",border:`1px solid ${active?C.amber:C.border}`,background:active?C.amberGlow:"transparent",color:active?C.amber:C.textLabel,transition:"all 0.15s"}}>
+                      {m.label} · D:{mDemand} · PI:{mPI}
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* Score header */}
               <div style={{display:"flex",gap:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"22px 24px",marginBottom:20,flexWrap:"wrap"}}>
                 <QuadrantPlot site={siteScore} demand={demandScore} previous={previous}/>
@@ -2184,7 +2292,7 @@ export default function App() {
 
                   <div style={{display:"flex",gap:10,marginBottom:14}}>
                     <ScorePill label="SITE SCORE" score={siteScore} sub="infrastructure viability"/>
-                    <ScorePill label="DEMAND SCORE" score={demandScore} sub="passenger + cargo draw"/>
+                    <ScorePill label="DEMAND SCORE" score={demandScore} sub={demandSubLabel}/>
                     <ScorePill label="PRIORITY INDEX" score={pi} sub="cargo-weighted 60/40"/>
                   </div>
 
@@ -2193,12 +2301,12 @@ export default function App() {
                     <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.5}}>{q.desc}</div>
                   </div>
 
-                  {results.summary&&<div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.65,marginBottom:10,paddingLeft:12,borderLeft:`2px solid ${C.border}`}}>{results.summary}</div>}
-                  {results.development_thesis&&<div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.amber,marginBottom:12,lineHeight:1.5}}>▶ {results.development_thesis}</div>}
+                  {dr.summary&&<div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.65,marginBottom:10,paddingLeft:12,borderLeft:`2px solid ${C.border}`}}>{dr.summary}</div>}
+                  {dr.development_thesis&&<div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.amber,marginBottom:12,lineHeight:1.5}}>▶ {dr.development_thesis}</div>}
 
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
-                    {(results.top_strengths||[]).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.green,background:"rgba(26,138,88,0.09)",border:"1px solid rgba(26,138,88,0.25)",borderRadius:3,padding:"3px 9px"}}>✓ {s}</span>)}
-                    {(results.top_concerns||[]).filter(Boolean).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.yellow,background:"rgba(200,122,16,0.09)",border:"1px solid rgba(200,122,16,0.25)",borderRadius:3,padding:"3px 9px"}}>⚑ {s}</span>)}
+                    {(dr.top_strengths||[]).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.green,background:"rgba(26,138,88,0.09)",border:"1px solid rgba(26,138,88,0.25)",borderRadius:3,padding:"3px 9px"}}>✓ {s}</span>)}
+                    {(dr.top_concerns||[]).filter(Boolean).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.yellow,background:"rgba(200,122,16,0.09)",border:"1px solid rgba(200,122,16,0.25)",borderRadius:3,padding:"3px 9px"}}>⚑ {s}</span>)}
                   </div>
 
                   {/* PDF Download Button */}
@@ -2224,23 +2332,21 @@ export default function App() {
               {/* Demand criteria */}
               <HeliportModifier heli={results.heliport}/>
 
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>DEMAND SCORE — WHY FLY HERE?</div>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>{DEMAND_HEADER[demandTab]}</div>
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"18px 20px",marginBottom:20}}>
-                <DemandRow label="Employment Density" icon="🏢" score={results.demand?.employment?.score||0} notes={results.demand?.employment?.notes}/>
-                <DemandRow label="Destinations & Attractions" icon="📍" score={results.demand?.destinations?.score||0} notes={results.demand?.destinations?.notes}/>
-                <DemandRow label="Medical & Institutional" icon="🏥" score={results.demand?.medical?.score||0} notes={results.demand?.medical?.notes}/>
-                <DemandRow label="Cargo & Logistics" icon="📦" score={results.demand?.cargo?.score||0} notes={results.demand?.cargo?.notes}/>
-                <DemandRow label="Transit Gap" icon="🚌" score={results.demand?.transit_gap?.score||0} notes={results.demand?.transit_gap?.notes}/>
+                {(DEMAND_CRITERIA[demandTab]).map(cr=>(
+                  <DemandRow key={cr.key} label={cr.label} icon={cr.icon} score={dr.demand?.[cr.key]?.score||0} notes={dr.demand?.[cr.key]?.notes}/>
+                ))}
               </div>
 
               {/* Flying Days */}
               <FlyingDaysPanel data={results.flyingDays}/>
 
               {/* Regulatory Checklist */}
-              <RegulatoryChecklist items={results.regulatory}/>
+              <RegulatoryChecklist items={dr.regulatory}/>
 
               {/* Investment / Viability */}
-              <InvestmentPanel data={results.investment}/>
+              <InvestmentPanel data={dr.investment}/>
 
               {/* Flags */}
               {results.flags?.length>0&&(

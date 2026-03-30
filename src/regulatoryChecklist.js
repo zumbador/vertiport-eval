@@ -14,7 +14,7 @@ const CATEGORIES = {
   OPS: "Operational Readiness",
 };
 
-export function buildRegulatoryChecklist(results) {
+export function buildRegulatoryChecklist(results, evalMode = "passenger") {
   const airspace = results.site?.airspace || {};
   const zoning = results.site?.zoning || {};
   const soil = results.site?.soil || {};
@@ -269,6 +269,62 @@ export function buildRegulatoryChecklist(results) {
     "required", "high",
     "Secure aviation general liability, hangarkeeper's liability, premises liability, and workers' compensation. eVTOL operations are a novel risk class — engage specialist aviation brokers early. Coverage requirements may affect financing terms."
   );
+
+  // ═══════════════════════════════════════════════════
+  // CARGO / COMBO — additional items
+  // ═══════════════════════════════════════════════════
+
+  if (evalMode === "cargo" || evalMode === "combo") {
+
+    add("FAA", "BVLOS Operational Approval",
+      "FAA Flight Standards District Office (FSDO)",
+      "14 CFR Part 107.205; BEYOND ARC waiver; AC 107-2B",
+      "required", "critical",
+      "Beyond Visual Line of Sight operations require either a Part 107.205 waiver or, for commercial cargo, a Part 135 certificate. Lead time is 6–18 months. BEYOND ARC (automated risk classification) is available in select corridors. File early — this is the longest-lead regulatory item for cargo operations."
+    );
+
+    add("FAA", "Part 135 Air Carrier Certificate (Cargo)",
+      "FAA Flight Standards District Office (FSDO)",
+      "14 CFR Part 135; AC 135-42",
+      "likely_required", "critical",
+      "Commercial cargo drone operations for hire require a Part 135 air carrier certificate. Part 107 covers limited commercial use only. Certificate process requires operations specifications, a safety management system, and crew training program. Existing Part 135 operators may be available as operating partners."
+    );
+
+    add("FAA", "Drone Delivery Air Carrier Designation",
+      "FAA Unmanned Aircraft Systems Division",
+      "FAA UAS Integration Pilot Program; Urban Air Mobility Ecosystem Working Group",
+      "conditional", "high",
+      "FAA is developing a specific framework for drone delivery air carriers separate from crewed-aircraft Part 135. Monitor FAA rulemaking and engage with applicable UTM (UAS Traffic Management) service providers early for corridor planning."
+    );
+
+    add("OPS", "UTM Integration & Remote ID Compliance",
+      "FAA UAS Division / USS Provider",
+      "14 CFR Part 89 (Remote ID); FAA UTM ConOps v2.0",
+      "required", "high",
+      "All cargo drones must broadcast Remote ID per 14 CFR Part 89. BVLOS operations require integration with a UAS Service Supplier (USS) for flight planning, deconfliction, and real-time tracking. Coordinate with USS provider (e.g., AirMap, Wing, Iris Automation) during site planning phase."
+    );
+
+    add("OPS", "Cargo Handling & Dangerous Goods Procedures",
+      "FAA / DOT PHMSA",
+      "49 CFR Parts 171–180 (Hazmat); IATA DGR; 14 CFR Part 135.433",
+      "required", "high",
+      "Establish dangerous goods acceptance/rejection procedures, hazmat training for ground crew, and packaging compliance protocols. Medical supplies, batteries, and perishables each have specific handling requirements. Coordinate with shipper on declared contents and manifest accuracy."
+    );
+
+    add("OPS", "Customs & Border Protection Clearance (if applicable)",
+      "U.S. Customs & Border Protection (CBP)",
+      "19 CFR Part 122; CBP Form 7533",
+      "conditional", "medium",
+      "Required if any shipments cross international boundaries or originate from bonded warehouses. For domestic-only operations, not applicable. File for CBP entry airport designation if international cargo is anticipated at this location."
+    );
+
+    add("LOCAL", "Cargo Drone Delivery Corridor Agreement",
+      "City / County Aviation Department",
+      "City UAS ordinance; TxDOT Aviation Division",
+      "likely_required", "medium",
+      "Some Texas municipalities (Houston, Dallas) are developing or have existing UAS corridor policies. Coordinate with local authority to confirm the planned flight corridor does not conflict with existing restrictions. Document agreement in writing before committing to route infrastructure."
+    );
+  }
 
   return items;
 }
