@@ -57,7 +57,7 @@ const DEMAND_HEADER = {
 };
 
 function getQuadrant(site, demand, evalMode = "passenger") {
-  const hs = site >= 55, hd = demand >= 55;
+  const hs = site >= 55, hd = demand >= 70;
   const desc = {
     passenger: {
       pp:"Strong infrastructure and high demand. Priority development candidate.",
@@ -762,7 +762,7 @@ SITE_COMPOSITE = parcel*0.25 + airspace*0.25 + zoning*0.15 + soil*0.10. Max=75.`
   const demandSections = {
     passenger: `DEMAND CRITERIA:
 EMPLOYMENT (30%): CBD/Energy Corridor/major hub=80-100. Business park=55-75. Mixed=30-50. Residential/park=5-25.
-DESTINATIONS (25%): Stadium/arena/convention=85-100. Outdoor venue/major park/museum=55-75. Willow Waterhole with music venue=58-70. Industrial=5-20.
+DESTINATIONS (25%): Stadium/arena/convention=85-100. Major international/hub airport (IAH/HOU/DAL/DFW)=80-95. Regional/commercial airport=65-80. General aviation airport=45-62. Outdoor venue/major park/museum=55-75. Willow Waterhole with music venue=58-70. Industrial=5-20.
 MEDICAL (20%): Texas Medical Center=90-100. Regional hospital=60-80. Clinic=25-45. None=5-20.
 CARGO (15%): Port/major hub=85-100. Industrial corridor=60-80. Humble/Will Clayton logistics=75-90. Residential/park=5-20.
 TRANSIT_GAP (10%): Remote/car-dependent=70-90. Suburban limited transit=50-70. Near Metro rail=10-30.
@@ -786,7 +786,7 @@ DEMAND_COMPOSITE = logistics_hub*0.25 + employment*0.25 + cargo_network*0.20 + p
   };
 
   const benchmarks = {
-    passenger: `BENCHMARKS: Will Clayton: site 68-82, demand 45-60. Galleria: site 28-42, demand 62-78. TMC: site 35-55, demand 85-95. Residential: site 15-28, demand 15-30.`,
+    passenger: `BENCHMARKS: Will Clayton: site 68-82, demand 45-60. Galleria: site 28-42, demand 62-78. TMC: site 35-55, demand 85-95. IAH airport area: site 35-55, demand 78-90. Residential: site 15-28, demand 15-30.`,
     cargo:     `BENCHMARKS (cargo): Will Clayton logistics park: site 68-82, demand 70-85. IAH cargo area: site 55-70, demand 75-90. Port Houston area: site 55-72, demand 80-92. TMC (medical supply): site 35-55, demand 72-85.`,
     combo:     `BENCHMARKS (combo): Will Clayton: site 68-82, demand 60-75. Galleria area: site 28-42, demand 52-68. TMC: site 35-55, demand 78-90.`,
   };
@@ -1172,13 +1172,15 @@ async function fetchZoningScore(lat, lon) {
 
   const isInQuery = `[out:json][timeout:15];
 is_in(${lat},${lon})->.a;
-(way(pivot.a)["landuse"];relation(pivot.a)["landuse"];);
+(way(pivot.a)["landuse"];relation(pivot.a)["landuse"];way(pivot.a)["aeroway"];relation(pivot.a)["aeroway"];);
 out tags;`;
 
   const aroundQuery = `[out:json][timeout:15];
 (
   way["landuse"](around:100,${lat},${lon});
   relation["landuse"](around:100,${lat},${lon});
+  way["aeroway"](around:200,${lat},${lon});
+  relation["aeroway"](around:200,${lat},${lon});
   way["building"](around:60,${lat},${lon});
 );
 out tags;`;
@@ -1191,10 +1193,25 @@ out tags;`;
   const isInElements  = isInSettled.status  === "fulfilled" ? (isInSettled.value.elements  || []) : [];
   const aroundElements = aroundSettled.status === "fulfilled" ? (aroundSettled.value.elements || []) : [];
 
-  // Prefer is_in landuse; fall back to around landuse; then around buildings
-  const elements = isInElements.some(e => e.tags?.landuse)
+  // Prefer is_in landuse/aeroway; fall back to around
+  const hasLanduse = (els) => els.some(e => e.tags?.landuse);
+  const hasAeroway = (els) => els.some(e => e.tags?.aeroway);
+  const elements = hasLanduse(isInElements) || hasAeroway(isInElements)
     ? isInElements
     : aroundElements;
+
+  const AEROWAY_MAP = {
+    aerodrome:     { score: 92, label: "Airport / aerodrome" },
+    terminal:      { score: 88, label: "Airport terminal" },
+    hangar:        { score: 85, label: "Aviation hangar" },
+    apron:         { score: 88, label: "Airport apron" },
+    helipad:       { score: 80, label: "Helipad" },
+    heliport:      { score: 82, label: "Heliport" },
+    taxiway:       { score: 80, label: "Airport taxiway area" },
+    runway:        { score: 75, label: "Runway area" },
+    gate:          { score: 85, label: "Airport gate area" },
+    parking_apron: { score: 85, label: "Parking apron" },
+  };
 
   const LANDUSE_MAP = {
     industrial:        { score: 90, label: "Industrial" },
@@ -1245,12 +1262,15 @@ out tags;`;
     return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
   }
 
-  const landuseTags = elements.filter(e => e.tags?.landuse).map(e => e.tags.landuse);
-  const buildingTags = elements.filter(e => e.tags?.building && !e.tags?.landuse).map(e => e.tags.building);
+  const landuseTags  = elements.filter(e => e.tags?.landuse).map(e => e.tags.landuse);
+  const aerowayTags  = elements.filter(e => e.tags?.aeroway && !e.tags?.landuse).map(e => e.tags.aeroway);
+  const buildingTags = elements.filter(e => e.tags?.building && !e.tags?.landuse && !e.tags?.aeroway).map(e => e.tags.building);
 
   let rawType, sourceMap, tagSource;
   if (landuseTags.length) {
     rawType = dominant(landuseTags); sourceMap = LANDUSE_MAP; tagSource = "landuse";
+  } else if (aerowayTags.length) {
+    rawType = dominant(aerowayTags); sourceMap = AEROWAY_MAP; tagSource = "aeroway";
   } else if (buildingTags.length) {
     rawType = dominant(buildingTags); sourceMap = BUILDING_MAP; tagSource = "building";
   } else {
@@ -2127,13 +2147,15 @@ export default function App() {
   const [mapView,setMapView]=useState("2d");
   const [approachBearing,setApproachBearing]=useState(0);
   const [demandTab,setDemandTab]=useState("passenger");
+  const [recentReports,setRecentReports]=useState(()=>{try{return JSON.parse(localStorage.getItem("veval_recent")||"[]");}catch{return [];}});
 
   if (!gated) return <LandingPage onStart={() => setGated(true)} />;
 
   const canRun=phase!=="loading"&&(mode==="address"?address.trim().length>0:parseCoords(lat,lon)!==null);
 
-  async function run(){
-    if(!canRun)return;
+  async function run(override=null){
+    if(!override&&!canRun)return;
+    const runMode=override?.mode||mode;
 
     // ── Rate limiting — disabled for development ───────────────
     // ──────────────────────────────────────────────────────────
@@ -2145,18 +2167,27 @@ export default function App() {
     const setL=(i,msg,s)=>{logs[i]={msg,s};setLog([...logs]);};
     try{
       let input;
-      if(mode==="coords"){const c=parseCoords(lat,lon);if(!c)throw new Error("Invalid coordinates. Texas is ~26-36°N, -94 to -107°W.");input={lat:c.lat,lon:c.lon,label:siteLabel||`${c.lat}, ${c.lon}`};addL(`Coordinates: ${c.lat.toFixed(5)}°N, ${Math.abs(c.lon).toFixed(5)}°W`);}
-      else{input={address:address.trim()};addL(`Geocoding: ${address.trim()}`);}
+      if(runMode==="coords"){
+        const rawLat=override?override.lat:lat; const rawLon=override?override.lon:lon; const rawLabel=override?.label||siteLabel;
+        const c=override?{lat:parseFloat(rawLat),lon:parseFloat(rawLon)}:parseCoords(rawLat,rawLon);
+        if(!c)throw new Error("Invalid coordinates. Texas is ~26-36°N, -94 to -107°W.");
+        input={lat:c.lat,lon:c.lon,label:rawLabel||`${c.lat}, ${c.lon}`};addL(`Coordinates: ${c.lat.toFixed(5)}°N, ${Math.abs(c.lon).toFixed(5)}°W`);
+      }else{const addr=override?override.address:address.trim();input={address:addr};addL(`Geocoding: ${addr}`);}
 
       // ── Three parallel Claude calls — one per demand mode ──
       const analysisIdx=logs.length; addL("Running passenger · cargo · combo analysis in parallel...","running");
       const [paxS,cargoS,comboS]=await Promise.allSettled([
-        analyzeWithClaude(input,mode,"passenger"),
-        analyzeWithClaude(input,mode,"cargo"),
-        analyzeWithClaude(input,mode,"combo"),
+        analyzeWithClaude(input,runMode,"passenger"),
+        analyzeWithClaude(input,runMode,"cargo"),
+        analyzeWithClaude(input,runMode,"combo"),
       ]);
       const firstOk=[paxS,cargoS,comboS].find(s=>s.status==="fulfilled"&&s.value?.geocode?.valid);
-      if(!firstOk) throw new Error("Location analysis failed. Check API key and try again.");
+      if(!firstOk){
+        const firstErr=[paxS,cargoS,comboS].find(s=>s.status==="rejected");
+        const firstVal=[paxS,cargoS,comboS].find(s=>s.status==="fulfilled");
+        console.error("All Claude calls invalid. Rejected:",firstErr?.reason,"Fulfilled sample:",JSON.stringify(firstVal?.value)?.slice(0,400));
+        throw new Error(firstErr?`API error: ${firstErr.reason?.message||firstErr.reason}`:`Response missing geocode.valid — check console for raw output`);
+      }
       const base=firstOk.value;
       setL(analysisIdx,`Resolved → ${base.geocode.lat?.toFixed(5)}°N, ${Math.abs(base.geocode.lon)?.toFixed(5)}°W`,"done");
 
@@ -2252,6 +2283,15 @@ export default function App() {
         },
       };
       setResults(fullResults);setPhase("complete");
+      // ── Save to recent reports ─────────────────────────────
+      const inputSnap=runMode==="coords"?{mode:"coords",lat:input.lat,lon:input.lon,label:input.label}:{mode:"address",address:input.address};
+      const ss=fullResults.site?.composite; const sd=fullResults.modes?.passenger?.demand?.composite;
+      const entry={id:Date.now(),ts:new Date().toISOString(),input:inputSnap,evalMode:demandTab,results:fullResults,display:input.label||input.address||`${input.lat?.toFixed(4)}, ${input.lon?.toFixed(4)}`,scores:{site:ss,demand:sd,pi:priorityIndex(ss,sd)}};
+      setRecentReports(prev=>{
+        const updated=[entry,...prev.filter(r=>r.display!==entry.display)].slice(0,10);
+        try{const json=JSON.stringify(updated);if(json.length<4*1024*1024){localStorage.setItem("veval_recent",json);}else{const trimmed=updated.slice(0,-1);localStorage.setItem("veval_recent",JSON.stringify(trimmed));return trimmed;}}catch(e){}
+        return updated;
+      });
     }catch(err){setL(0,`Error: ${err.message}`,"error");setError(err.message);setPhase("error");}
   }
 
@@ -2267,6 +2307,10 @@ export default function App() {
   }
 
   const reset=()=>{setPhase("idle");setResults(null);setPrevious(null);setLog([]);setAddress("");setLat("");setLon("");setSiteLabel("");setError(null);setDemandTab("passenger");};
+  function loadReport(r){setPrevious(results);setResults(r.results);setPhase("complete");setDemandTab(r.evalMode);setLog([]);setError(null);if(r.input.mode==="coords"){setMode("coords");setLat(String(r.input.lat));setLon(String(r.input.lon));setSiteLabel(r.input.label||"");}else{setMode("address");setAddress(r.input.address||"");}}
+  function rerunReport(r){if(r.input.mode==="coords"){setMode("coords");setLat(String(r.input.lat));setLon(String(r.input.lon));setSiteLabel(r.input.label||"");}else{setMode("address");setAddress(r.input.address||"");}run(r.input);}
+  function clearRecent(){setRecentReports([]);localStorage.removeItem("veval_recent");}
+  function relativeTime(ts){const s=Math.floor((Date.now()-new Date(ts))/1000);if(s<60)return`${s}s ago`;if(s<3600)return`${Math.floor(s/60)}m ago`;if(s<86400)return`${Math.floor(s/3600)}h ago`;return`${Math.floor(s/86400)}d ago`;}
   const tabStyle=(active)=>({background:"transparent",border:`1px solid ${active?C.amber:C.border}`,color:active?C.amber:C.textLabel,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"6px 14px",borderRadius:4,cursor:"pointer",transition:"all 0.15s"});
   const inputStyle={background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textBright,fontFamily:"'IBM Plex Mono',monospace",fontSize:12,padding:"11px 14px"};
 
@@ -2319,7 +2363,7 @@ export default function App() {
               <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:8}}>SITE ADDRESS</div>
               <div style={{display:"flex",gap:10}}>
                 <input value={address} onChange={e=>setAddress(e.target.value)} onKeyDown={e=>e.key==="Enter"&&canRun&&run()} placeholder="Street address — Houston metro area" style={{...inputStyle,flex:1}}/>
-                <button className="run-btn" onClick={run} disabled={!canRun} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,letterSpacing:"0.2em",padding:"11px 22px",borderRadius:6,cursor:"pointer",opacity:!canRun?0.4:1,whiteSpace:"nowrap"}}>{phase==="loading"?"RUNNING...":"ANALYZE"}</button>
+                <button className="run-btn" onClick={()=>run()} disabled={!canRun} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,letterSpacing:"0.2em",padding:"11px 22px",borderRadius:6,cursor:"pointer",opacity:!canRun?0.4:1,whiteSpace:"nowrap"}}>{phase==="loading"?"RUNNING...":"ANALYZE"}</button>
               </div>
               <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:"4px 16px"}}>
                 <span style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:11,color:C.textLabel}}>Try:</span>
@@ -2333,7 +2377,7 @@ export default function App() {
                 <input value={lat} onChange={e=>setLat(e.target.value)} placeholder="Latitude (e.g. 29.6620)" style={{...inputStyle,flex:1,minWidth:140}}/>
                 <input value={lon} onChange={e=>setLon(e.target.value)} placeholder="Longitude (e.g. -95.5197)" style={{...inputStyle,flex:1,minWidth:160}}/>
                 <input value={siteLabel} onChange={e=>setSiteLabel(e.target.value)} placeholder="Site name (optional)" style={{...inputStyle,flex:1,minWidth:140}}/>
-                <button className="run-btn" onClick={run} disabled={!canRun} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,letterSpacing:"0.2em",padding:"11px 22px",borderRadius:6,cursor:"pointer",opacity:!canRun?0.4:1,whiteSpace:"nowrap"}}>{phase==="loading"?"RUNNING...":"ANALYZE"}</button>
+                <button className="run-btn" onClick={()=>run()} disabled={!canRun} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,letterSpacing:"0.2em",padding:"11px 22px",borderRadius:6,cursor:"pointer",opacity:!canRun?0.4:1,whiteSpace:"nowrap"}}>{phase==="loading"?"RUNNING...":"ANALYZE"}</button>
               </div>
               <div style={{marginTop:8,padding:"7px 12px",background:"rgba(240,160,48,0.05)",border:`1px solid rgba(240,160,48,0.15)`,borderRadius:5}}>
                 <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim}}>TIP: Right-click any location in Google Maps — coordinates appear at the top of the context menu.</span>
@@ -2345,6 +2389,34 @@ export default function App() {
             </>
           )}
         </div>
+
+        {/* Recent Reports */}
+        {recentReports.length>0&&(
+          <div style={{marginBottom:24,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+            <div style={{padding:"9px 16px",background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",color:C.textLabel}}>RECENT REPORTS</span>
+              <button onClick={clearRecent} style={{background:"none",border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,letterSpacing:"0.1em"}}>CLEAR ALL</button>
+            </div>
+            {recentReports.map(r=>{
+              const q=getQuadrant(r.scores.site,r.scores.demand,r.evalMode);
+              const btnBase={fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.12em",padding:"5px 10px",borderRadius:4,cursor:"pointer",border:`1px solid ${C.border}`};
+              return(
+                <div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:`1px solid ${C.border}`,background:C.bg}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:C.textBright,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.display}</div>
+                    <div style={{display:"flex",gap:14,marginTop:3,alignItems:"center"}}>
+                      <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim}}>S:{r.scores.site} · D:{r.scores.demand} · PI:{r.scores.pi}</span>
+                      <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:q.color}}>{q.label}</span>
+                    </div>
+                  </div>
+                  <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,whiteSpace:"nowrap"}}>{relativeTime(r.ts)}</span>
+                  <button onClick={()=>loadReport(r)} style={{...btnBase,background:C.surface,color:C.textLabel}}>LOAD</button>
+                  <button onClick={()=>rerunReport(r)} style={{...btnBase,background:"transparent",color:C.amber,borderColor:C.amber}} disabled={phase==="loading"}>{phase==="loading"?"...":"RE-RUN"}</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Log */}
         {log.length>0&&(
@@ -2359,7 +2431,7 @@ export default function App() {
         {phase==="error"&&(
           <div style={{background:"rgba(192,57,43,0.06)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:8,padding:"14px 18px",marginBottom:24}}>
             <div style={{color:C.red,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,marginBottom:8}}>ERROR — {error}</div>
-            <button onClick={run} style={{background:"transparent",border:`1px solid ${C.red}`,color:C.red,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"7px 16px",borderRadius:4,cursor:"pointer"}}>RETRY</button>
+            <button onClick={()=>run()} style={{background:"transparent",border:`1px solid ${C.red}`,color:C.red,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"7px 16px",borderRadius:4,cursor:"pointer"}}>RETRY</button>
           </div>
         )}
 
@@ -2493,7 +2565,7 @@ export default function App() {
               </div>
 
               <div style={{display:"flex",gap:12,justifyContent:"center"}}>
-                <button onClick={run} disabled={phase==="loading"} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 24px",borderRadius:6,cursor:"pointer"}}>RE-ANALYZE</button>
+                <button onClick={()=>run()} disabled={phase==="loading"} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 24px",borderRadius:6,cursor:"pointer"}}>RE-ANALYZE</button>
                 <button onClick={reset} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.textLabel,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 24px",borderRadius:6,cursor:"pointer"}}>NEW SITE</button>
               </div>
             </div>
