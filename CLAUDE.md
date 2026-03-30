@@ -166,12 +166,20 @@ Done:
 - Validated benchmarks recalibrated against live data — all 5 test sites re-run [Mar 29]
 
 Next up (do in Claude Code):
-- Replace remaining knowledge-base scoring estimates with live API calls
-- 3D map view — Mapbox GL JS, FAA EB 105A obstacle surfaces, approach/departure paths
-- Style PDF report to match site aesthetic
+- Save evaluated sites — localStorage, full results JSON + timestamp, reload without re-running APIs/Claude, evict oldest when near 5MB cap, "Re-run" button to refresh stale data
+- Nationwide address support — expand txAirspace.js to all US Class B/C/D (~500 airports, static FAA NASR extract), expand heliport layer to national NASR dataset, expand flyingDays.js to national NOAA stations, update UI copy (remove "Texas Beta" scope references)
 - Multi-site / network view (quadrant chart supports multiple points)
-- Rate limiting for beta launch
+- Rate limiting for beta launch (currently disabled for dev)
 - Beta landing page and email signup (HubSpot integration — free tier creates contact)
+- Parcel APIs for other TX counties (Dallas/Tarrant/Travis/Bexar — currently LLM fallback)
+- Pro tier: user-adjustable demand criterion weights — sliders for the 5 demand criteria per mode, recomputes demand score + PI live, free tier gets defaults only, weights never expose underlying score math
+
+Done (remove when stale):
+- Replace remaining knowledge-base scoring estimates with live API calls ✅
+- 3D map view — Mapbox GL JS, FAA EB 105A obstacle surfaces ✅
+- Style PDF report to match site aesthetic ✅
+- Parallel passenger/cargo/combo evaluation with demand mode switcher ✅
+- PDF mode comparison page ✅
 
 ---
 
