@@ -94,8 +94,8 @@ Files: txHeliports.js (833 TX heliports), heliportLookup.js (Haversine + type bo
 | USGS 3DEP             | Elevation and slope            | None         | Active           |
 | FEMA NFHL             | Flood zone                     | None         | Active           |
 | FAA NASR              | Heliport registry              | None         | Done             |
-| EIA Open Data         | Grid capacity / utility        | Key in .env  | Pending wiring   |
-| NREL RE Atlas         | Distributed energy counts      | Key in .env  | Pending wiring   |
+| EIA Open Data         | Grid capacity / utility        | Key in .env  | Done             |
+| NREL RE Atlas         | Distributed energy counts      | Key in .env  | Done             |
 | Harris County         | Real parcel data               | None/public  | Pending          |
 
 API keys stored in: ~/Projects/vertiport-eval/.env — never commit to source code.
@@ -115,12 +115,17 @@ From the FAA Vertiport Electrical Infrastructure Study (NREL) in /research:
 
 ## Validated Test Sites
 
-| Site                              | Site | Demand | Quadrant              |
-|-----------------------------------|------|--------|-----------------------|
-| 8900 Will Clayton Pkwy, Humble TX | 87   | ~50    | Infrastructure Play   |
-| 1400 Post Oak Blvd, Houston TX    | 28   | ~65    | Demand Without Site   |
-| TMC (29.7079, -95.4010)           | 44   | 91     | Demand Without Site   |
-| Willow Waterhole (29.6620,-95.52) | ~61  | ~58    | Moderate both axes    |
+Live-data baseline as of Mar 29, 2026. Scores reflect HCAD parcel, FEMA flood,
+FAA airspace (Haversine), EIA, and NREL live APIs. LLM estimates only for zoning
+and demand sub-criteria.
+
+| Site                              | Site | Demand | PI  | Quadrant             | Notes |
+|-----------------------------------|------|--------|-----|----------------------|-------|
+| 8900 Will Clayton Pkwy, Humble TX | 74   | 54     | 66  | Infrastructure Play  | Parcel 1.17 ac (30), airspace 45 (Class B outer 4.4nm IAH) |
+| 1400 Post Oak Blvd, Houston TX    | 44   | 75     | 56  | Demand Without Site  | Parcel 11.56 ac (95), heliport +10/7, airspace 60 (Class B outer 15.4nm) |
+| TMC (29.7079, -95.4010)           | 61   | 100    | 77  | PRIME SITE           | Medical heliport +14/18, parcel 9.07 ac, Zone X 500-yr flood |
+| Willow Waterhole (29.6620,-95.52) | 58   | 36     | 49  | Infrastructure Play  | Parcel 5.9 ac, Zone X minimal, demand lower than LLM estimated |
+| AT&T Stadium, Arlington TX        | 71   | 78     | 74  | PRIME SITE           | Cowboys heliport +10/7, outside Harris County (parcel = LLM est.) |
 
 ---
 
@@ -143,12 +148,26 @@ Done:
 - Investment / viability summary — scenario classification, CAPEX/OPEX/revenue model,
   6-factor risk matrix, development timeline, investment grade A-D, 10-year NPV [Mar 28]
 - All Mar 28 features integrated into web UI and PDF report export
+- GitHub repo initialized — github.com/zumbador/vertiport-eval (private) [Mar 29]
+- EIA Open Data API wired — fetchEIAPowerScore(), ERCOT territory, TX retail sales
+  data, live scoring for Power Grid & DER layer [Mar 29]
+- NREL RE Atlas API wired — fetchNRELDERScore(), 4 components: solar GHI, utility
+  type, commercial rate, net metering; Promise.allSettled() graceful fallback [Mar 29]
+- Harris County parcel API wired — fetchHarrisParcelScore(), HCAD ArcGIS public REST,
+  live acreage + state class code, score overrides LLM estimate, composite recalculated,
+  graceful fallback outside Harris County [Mar 29]
+- FEMA NFHL flood zone wired — fetchFEMAFloodScore(), layer 28, Zone X/AE/VE/A/D
+  scoring, USGS 3DEP elevation in parallel, graceful fallback [Mar 29]
+- FAA airspace scoring wired — scoreAirspace(), Haversine against TX_AIRSPACE data
+  (extracted to txAirspace.js, shared with SiteMap), Class B/C/D tier lookup,
+  Class B SFC radius tuned to 4nm to account for irregular boundaries [Mar 29]
+- OSM/Overpass zoning wired — fetchZoningScore(), is_in + around:100m parallel queries,
+  landuse and building tag scoring, LLM fallback for unmapped suburban areas [Mar 29]
+- Validated benchmarks recalibrated against live data — all 5 test sites re-run [Mar 29]
 
 Next up (do in Claude Code):
-- Wire EIA API into Power Grid & DER layer
-- Wire NREL API into Community DER Support layer
-- Replace knowledge-base scoring estimates with live API calls
-- Harris County parcel API integration
+- Replace remaining knowledge-base scoring estimates with live API calls
+- 3D map view — Mapbox GL JS, FAA EB 105A obstacle surfaces, approach/departure paths
 - Style PDF report to match site aesthetic
 - Multi-site / network view (quadrant chart supports multiple points)
 - Rate limiting for beta launch
@@ -163,7 +182,7 @@ Next up (do in Claude Code):
 3. Cargo-weighted scoring (airspace + parcel top-weighted)
 4. Two-axis output: Site Score + Demand Score + Priority Index
 5. Claude Code for production build, Claude.ai for planning/prototype
-6. EIA and NREL API keys registered — ready for Claude Code integration
+6. EIA and NREL API keys registered and wired — live scoring active
 7. Harris County parcel API as first county integration
 8. Priority Index = (Site × 0.60) + (Demand × 0.40) for cargo-first default
 9. **Scoring methodology is proprietary** — weights, thresholds, and normalization
@@ -176,6 +195,7 @@ Next up (do in Claude Code):
     $15k–30k Engineering Package) → B2B API licensing (Phase 2+)
 12. Subcontract field work for premium tiers (drone surveys, acoustic baselines,
     utility inquiries) — build in-house only when volume justifies it
+13. 3D map planned — Mapbox GL JS for obstacle surfaces and approach/departure paths
 
 ---
 
@@ -213,3 +233,4 @@ vertiport-eval/
 - Secondary use case: medical/hospital helipad conversion analysis
 - Beta: free access for property owners, portfolio managers, brokers
 - Notion project: https://www.notion.so/32b7112e57b981009421d9f2168fdcd7
+- GitHub: https://github.com/zumbador/vertiport-eval (private)

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { jsPDF } from "jspdf";
 import { findNearestHeliport } from './heliportLookup.js';
+import { TX_AIRSPACE } from './txAirspace.js';
 import { estimateFlyingDays } from './flyingDays.js';
 import { buildRegulatoryChecklist, CATEGORIES } from './regulatoryChecklist.js';
 import { buildInvestmentSummary } from './investmentViability.js';
@@ -776,6 +777,405 @@ async function fetchNRELDERScore(lat, lon) {
   };
 }
 
+// ── Harris County parcel score (HCAD ArcGIS public REST API) ──
+// Coverage: Harris County, TX only. Falls through gracefully elsewhere.
+// Scoring thresholds mirror the LLM prompt so live data is consistent:
+//   >10 ac → 95  |  5-10 ac → 85  |  2-5 ac → 67  |  1.5-2 ac → 40
+//   0.5-1.5 ac → 30  |  <0.5 ac → 12
+async function fetchHarrisParcelScore(lat, lon) {
+  // Query with 100m buffer — single-point queries often land on road easements
+  // or tiny sub-lots within a larger complex. Take the largest parcel in range.
+  const params = new URLSearchParams({
+    geometry: JSON.stringify({ x: lon, y: lat }),
+    geometryType: "esriGeometryPoint",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    distance: "100",
+    units: "esriSRUnit_Meter",
+    outFields: "HCAD_NUM,land_sqft,acreage_1,state_class,land_use,site_str_num,site_str_name",
+    returnGeometry: "false",
+    outSR: "4326",
+    f: "json",
+  });
+  const res = await fetch(
+    `https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer/0/query?${params}`,
+    { signal: AbortSignal.timeout(15000) }
+  );
+  if (!res.ok) throw new Error(`HCAD API ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`HCAD: ${json.error.message || "API error"}`);
+  if (!json.features?.length) throw new Error("Outside Harris County coverage — using estimate");
+
+  // Pick the largest parcel within the buffer
+  const feature = json.features.reduce((best, f) =>
+    (f.attributes.land_sqft ?? 0) > (best.attributes.land_sqft ?? 0) ? f : best
+  );
+
+  const attr = feature.attributes;
+  const landSqFt = attr.land_sqft ?? 0;
+  const acreage = attr.acreage_1 ?? (landSqFt / 43560);
+
+  let score;
+  if      (acreage >= 10)  score = 95;
+  else if (acreage >= 5)   score = 85;
+  else if (acreage >= 2)   score = 67;
+  else if (acreage >= 1.5) score = 40;
+  else if (acreage >= 0.5) score = 30;
+  else                     score = 12;
+
+  const classMap = {
+    A: "Single family residential", B: "Multifamily residential",
+    C: "Vacant land", D: "Farm/ranch", E: "Agricultural",
+    F: "Commercial", G: "Mineral/oil", I: "Industrial",
+    J: "Utilities", L: "Commercial retail", S: "Special purpose",
+    X: "Exempt (government/institutional)",
+  };
+  const classCode = (attr.state_class || "").charAt(0).toUpperCase();
+  const land_type = classMap[classCode] || (attr.state_class ? `Class ${attr.state_class}` : "Unknown");
+
+  const flags = [];
+  if (acreage < 1.5) flags.push("Below NREL 1.5-ac minimum");
+  if (acreage >= 1.5 && acreage < 2) flags.push("Marginal — verify usable footprint");
+
+  const ac = acreage >= 0.1 ? acreage.toFixed(2) : acreage.toFixed(3);
+  const notes = acreage >= 5
+    ? `${ac} ac (HCAD live) — exceeds NREL minimum for fixed infrastructure`
+    : acreage >= 1.5
+    ? `${ac} ac (HCAD live) — meets NREL 1.5-ac minimum, tight for phased expansion`
+    : `${ac} ac (HCAD live) — below NREL 1.5-ac minimum for fixed vertiport`;
+
+  return {
+    score,
+    acreage_estimate: parseFloat(ac),
+    land_type,
+    notes,
+    flags,
+    _source: "HCAD",
+    _account: attr.HCAD_NUM || "",
+    _address: [attr.site_str_num, attr.site_str_name].filter(Boolean).join(" "),
+  };
+}
+
+// ── FEMA NFHL + USGS 3DEP flood & elevation score ─────────────
+// FEMA NFHL layer 28 = Flood Hazard Zones (S_FLD_HAZ_AR), nationwide
+// USGS 3DEP EPQS = point elevation in feet, nationwide
+// Scoring mirrors LLM prompt thresholds:
+//   Zone X (minimal)  → 90  |  Zone X (500-yr)  → 72  |  Zone X (levee) → 60
+//   Zone AE/A (SFHA)  → 25  |  Zone VE (coastal) → 15  |  Unknown → 65
+async function fetchFEMAFloodScore(lat, lon) {
+  const [femaSettled, usgsSettled] = await Promise.allSettled([
+    // FEMA NFHL — flood hazard zone polygon query
+    (async () => {
+      const p = new URLSearchParams({
+        geometry: JSON.stringify({ x: lon, y: lat }),
+        geometryType: "esriGeometryPoint",
+        inSR: "4326",
+        spatialRel: "esriSpatialRelIntersects",
+        outFields: "FLD_ZONE,ZONE_SUBTY,SFHA_TF",
+        returnGeometry: "false",
+        f: "json",
+      });
+      const r = await fetch(
+        `https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query?${p}`,
+        { signal: AbortSignal.timeout(15000) }
+      );
+      if (!r.ok) throw new Error(`FEMA API ${r.status}`);
+      const j = await r.json();
+      if (j.error) throw new Error(`FEMA: ${j.error.message}`);
+      return j.features?.[0]?.attributes || null;
+    })(),
+    // USGS 3DEP — point elevation in feet
+    (async () => {
+      const r = await fetch(
+        `https://epqs.nationalmap.gov/v1/json?x=${lon}&y=${lat}&wkid=4326&units=Feet&includeDate=false`,
+        { signal: AbortSignal.timeout(12000) }
+      );
+      if (!r.ok) throw new Error(`USGS ${r.status}`);
+      const j = await r.json();
+      const val = parseFloat(j.value);
+      return isFinite(val) ? val : null;
+    })(),
+  ]);
+
+  const fema = femaSettled.status === "fulfilled" ? femaSettled.value : null;
+  const elevFt = usgsSettled.status === "fulfilled" ? usgsSettled.value : null;
+
+  const fldZone = fema?.FLD_ZONE || "";
+  const subtype = (fema?.ZONE_SUBTY || "").toUpperCase();
+
+  let score, zoneLabel;
+  const flags = [];
+
+  if (!fema) {
+    score = 65;
+    zoneLabel = "Unknown (FEMA unavailable)";
+  } else if (fldZone === "X") {
+    if (subtype.includes("0.2") || subtype.includes("500")) {
+      score = 72; zoneLabel = "Zone X (500-yr flood hazard)";
+    } else if (subtype.includes("LEVEE")) {
+      score = 60; zoneLabel = "Zone X (behind levee)";
+      flags.push("Levee-protected — verify accreditation status");
+    } else {
+      score = 90; zoneLabel = "Zone X (minimal flood hazard)";
+    }
+  } else if (fldZone === "AE") {
+    score = 25; zoneLabel = "Zone AE (100-yr SFHA)";
+    flags.push("SFHA — flood insurance required, fill permit needed");
+    flags.push("LOMA or LOMR likely required before development");
+  } else if (fldZone === "A") {
+    score = 22; zoneLabel = "Zone A (100-yr, no BFE)";
+    flags.push("SFHA — flood insurance required");
+  } else if (fldZone === "VE" || fldZone === "V") {
+    score = 15; zoneLabel = `Zone ${fldZone} (coastal high hazard)`;
+    flags.push("Coastal SFHA — VE zone restrictions apply, wave action risk");
+  } else if (fldZone === "AO" || fldZone === "AH") {
+    score = 20; zoneLabel = `Zone ${fldZone} (shallow flooding)`;
+    flags.push("SFHA — shallow flooding, drainage engineering critical");
+  } else if (fldZone === "D") {
+    score = 55; zoneLabel = "Zone D (flood risk undetermined)";
+    flags.push("Zone D — FEMA study not available, commission survey");
+  } else {
+    score = 65; zoneLabel = fldZone ? `Zone ${fldZone}` : "Zone X (estimated)";
+  }
+
+  const elevStr = elevFt !== null ? `${Math.round(elevFt)} ft` : null;
+  const sourceTag = fema ? "(FEMA NFHL live)" : "(FEMA unavailable — estimate)";
+
+  const notes = score >= 80
+    ? `${zoneLabel} ${sourceTag}.${elevStr ? ` Elevation ${elevStr}.` : ""} Low flood risk.`
+    : score >= 55
+    ? `${zoneLabel} ${sourceTag}.${elevStr ? ` Elevation ${elevStr}.` : ""} Verify site drainage.`
+    : `${zoneLabel} ${sourceTag}.${elevStr ? ` Elevation ${elevStr}.` : ""} Fill permit and LOMA likely required.`;
+
+  return {
+    score,
+    flood_zone: zoneLabel,
+    slope_estimate: "< 2% (TX flat terrain)",
+    elevation_ft: elevFt !== null ? Math.round(elevFt) : null,
+    notes,
+    flags,
+    _source: { fema: !!fema, usgs: elevFt !== null },
+  };
+}
+
+// ── OSM/Overpass zoning score ─────────────────────────────────
+// Queries landuse polygons within 100m and buildings within 50m.
+// Takes the most common landuse tag; falls back to building type.
+// Throws on no data — LLM estimate used as fallback.
+async function fetchZoningScore(lat, lon) {
+  // Run is_in (exact containment) and around:100m in parallel.
+  // is_in is authoritative when OSM has a landuse polygon; around catches gaps.
+  const overpassFetch = (q) => fetch("https://overpass-api.de/api/interpreter", {
+    method: "POST",
+    body: "data=" + encodeURIComponent(q),
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    signal: AbortSignal.timeout(20000),
+  }).then(r => { if (!r.ok) throw new Error(`Overpass ${r.status}`); return r.json(); });
+
+  const isInQuery = `[out:json][timeout:15];
+is_in(${lat},${lon})->.a;
+(way(pivot.a)["landuse"];relation(pivot.a)["landuse"];);
+out tags;`;
+
+  const aroundQuery = `[out:json][timeout:15];
+(
+  way["landuse"](around:100,${lat},${lon});
+  relation["landuse"](around:100,${lat},${lon});
+  way["building"](around:60,${lat},${lon});
+);
+out tags;`;
+
+  const [isInSettled, aroundSettled] = await Promise.allSettled([
+    overpassFetch(isInQuery),
+    overpassFetch(aroundQuery),
+  ]);
+
+  const isInElements  = isInSettled.status  === "fulfilled" ? (isInSettled.value.elements  || []) : [];
+  const aroundElements = aroundSettled.status === "fulfilled" ? (aroundSettled.value.elements || []) : [];
+
+  // Prefer is_in landuse; fall back to around landuse; then around buildings
+  const elements = isInElements.some(e => e.tags?.landuse)
+    ? isInElements
+    : aroundElements;
+
+  const LANDUSE_MAP = {
+    industrial:        { score: 90, label: "Industrial" },
+    logistics:         { score: 88, label: "Logistics" },
+    port:              { score: 85, label: "Port/logistics" },
+    depot:             { score: 68, label: "Transport depot" },
+    railway:           { score: 60, label: "Railway/transport corridor" },
+    commercial:        { score: 55, label: "Commercial" },
+    office:            { score: 58, label: "Office" },
+    retail:            { score: 45, label: "Retail" },
+    recreation_ground: { score: 62, label: "Recreation ground" },
+    grass:             { score: 58, label: "Open grassland" },
+    meadow:            { score: 58, label: "Meadow/open land" },
+    greenfield:        { score: 62, label: "Undeveloped land" },
+    farmland:          { score: 50, label: "Farmland" },
+    farm:              { score: 50, label: "Farm" },
+    farmyard:          { score: 48, label: "Farmyard" },
+    quarry:            { score: 55, label: "Quarry/extraction" },
+    forest:            { score: 40, label: "Forest" },
+    allotments:        { score: 28, label: "Allotments" },
+    military:          { score: 30, label: "Military" },
+    cemetery:          { score: 20, label: "Cemetery" },
+    residential:       { score: 15, label: "Residential" },
+  };
+
+  const BUILDING_MAP = {
+    warehouse:   { score: 88, label: "Warehouse" },
+    industrial:  { score: 85, label: "Industrial building" },
+    stadium:     { score: 65, label: "Stadium/arena" },
+    sports_hall: { score: 60, label: "Sports facility" },
+    office:      { score: 60, label: "Office building" },
+    commercial:  { score: 55, label: "Commercial building" },
+    hospital:    { score: 55, label: "Hospital/medical" },
+    civic:       { score: 50, label: "Civic building" },
+    yes:         { score: 50, label: "Building (unclassified)" },
+    retail:      { score: 45, label: "Retail building" },
+    church:      { score: 25, label: "Religious building" },
+    residential: { score: 15, label: "Residential" },
+    apartments:  { score: 15, label: "Residential apartments" },
+    house:       { score: 12, label: "House" },
+    detached:    { score: 12, label: "Detached house" },
+  };
+
+  // Collect tags; most common wins
+  function dominant(tags) {
+    const freq = {};
+    for (const t of tags) freq[t] = (freq[t] || 0) + 1;
+    return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  }
+
+  const landuseTags = elements.filter(e => e.tags?.landuse).map(e => e.tags.landuse);
+  const buildingTags = elements.filter(e => e.tags?.building && !e.tags?.landuse).map(e => e.tags.building);
+
+  let rawType, sourceMap, tagSource;
+  if (landuseTags.length) {
+    rawType = dominant(landuseTags); sourceMap = LANDUSE_MAP; tagSource = "landuse";
+  } else if (buildingTags.length) {
+    rawType = dominant(buildingTags); sourceMap = BUILDING_MAP; tagSource = "building";
+  } else {
+    throw new Error("No OSM land use data at this location — using estimate");
+  }
+
+  const { score, label: land_use } = sourceMap[rawType] || { score: 50, label: rawType };
+  const compliance = score >= 75 ? "Favorable" : score >= 50 ? "Permitted with conditions" : score >= 30 ? "Marginal" : "Adverse";
+  const flags = [];
+  if (score < 30) flags.push("Adverse zoning — rezoning or variance required");
+  else if (score < 50) flags.push("Marginal zoning — conditional use permit likely required");
+
+  const src = `(OSM ${tagSource})`;
+  const notes = score >= 75
+    ? `${land_use} ${src} — favorable land use for vertiport development.`
+    : score >= 50
+    ? `${land_use} ${src} — conditional use permit or variance likely required.`
+    : `${land_use} ${src} — rezoning required. Significant entitlement risk.`;
+
+  return { score, compliance, land_use, notes, flags, _source: "OSM/Overpass", _raw: rawType };
+}
+
+// ── FAA Airspace scoring (static TX_AIRSPACE data + Haversine) ─
+// No live API — uses the same airport dataset as the map overlay.
+// Circular tier model is a simplification; real Class B has irregular legs.
+// Primary signal: whether the site is inside a SFC-floor tier.
+// For eVTOL ops (below ~1000ft AGL), outer tiers with elevated floors are
+// permissive at surface level but require authorization above the floor.
+//
+// Scoring calibrated against validated TX benchmarks:
+//   Class B SFC → 15  |  Class B outer (2000ft floor) → 45
+//   Class B outer (3000ft+) → 60  |  Class C SFC → 42  |  Class C outer → 65
+//   Class D → 65  |  Class G <10nm → 78  |  Class G 10-20nm → 83
+//   Class G 20-40nm → 90  |  Class G >40nm → 95
+function scoreAirspace(lat, lon) {
+  // Haversine in nautical miles
+  function distNM(lat1, lon1, lat2, lon2) {
+    const R = 3440.065; // Earth radius in NM
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  let tightest = null;  // { ap, tier, dist, score }
+  let nearest  = null;  // closest airport regardless of airspace
+  let nearestDist = Infinity;
+
+  for (const ap of TX_AIRSPACE) {
+    const dist = distNM(lat, lon, ap.lat, ap.lon);
+    if (dist < nearestDist) { nearestDist = dist; nearest = ap; }
+
+    // Check tiers innermost-first; stop at first enclosing tier
+    for (const tier of ap.tiers) {
+      // Class B SFC radius shrunk to 4nm: real boundary has northeast cutouts
+      // and LLM geocoding can place addresses ~1nm closer than Census truth.
+      const effectiveRadius = (ap.class === "B" && tier.floor === "SFC") ? 4 : tier.radius_nm;
+      if (dist <= effectiveRadius) {
+        const isSFC = tier.floor === "SFC";
+        let tierScore;
+        if      (ap.class === "B" && isSFC)              tierScore = 15;
+        else if (ap.class === "B" && tier.floor <= 2000) tierScore = 45;
+        else if (ap.class === "B")                    tierScore = 60;
+        else if (ap.class === "C" && isSFC)           tierScore = 42;
+        else if (ap.class === "C")                    tierScore = 65;
+        else                                          tierScore = 65; // Class D
+        if (!tightest || tierScore < tightest.score) {
+          tightest = { ap, tier, dist, score: tierScore };
+        }
+        break;
+      }
+    }
+  }
+
+  let score, status, laanc_required;
+  const flags = [];
+
+  if (tightest) {
+    const { ap, tier, dist } = tightest;
+    const isSFC = tier.floor === "SFC";
+    score = tightest.score;
+    laanc_required = true;
+
+    if (ap.class === "B" && isSFC) {
+      status = "Class B (SFC floor)";
+      flags.push("Class B clearance required — coordinate with TRACON prior to ops");
+    } else if (ap.class === "B") {
+      status = `Class B (floor ${tier.floor.toLocaleString()}ft MSL)`;
+      flags.push(`Class B authorization required above ${tier.floor.toLocaleString()}ft`);
+    } else if (ap.class === "C" && isSFC) {
+      status = "Class C (SFC floor)";
+      flags.push("Class C — two-way ATC radio contact required for all ops");
+    } else if (ap.class === "C") {
+      status = "Class C (outer ring)";
+    } else {
+      status = "Class D";
+      flags.push("Class D — establish two-way radio contact before entering");
+    }
+
+    const distStr = `${dist.toFixed(1)} nm`;
+    return { score, status, laanc_required,
+      nearest_airport: `${ap.name} · ${distStr}`, flags,
+      notes: score >= 60
+        ? `${status} — coordination required but ops feasible. ${ap.name} ${distStr}.`
+        : `${status} — constrained airspace. Significant FAA coordination required. ${ap.name} ${distStr}.`,
+    };
+  }
+
+  // Class G — score by distance to nearest airport
+  score = nearestDist < 5 ? 72 : nearestDist < 10 ? 78 : nearestDist < 20 ? 83 : nearestDist < 40 ? 90 : 95;
+  laanc_required = nearestDist < 5;
+  status = "Class G (uncontrolled)";
+  const nearStr = nearest ? `${nearest.name} · ${nearestDist.toFixed(1)} nm` : "No controlled airport within range";
+  return { score, status, laanc_required,
+    nearest_airport: nearStr, flags,
+    notes: score >= 88
+      ? `${status} — highly favorable for eVTOL operations. Nearest airport: ${nearStr}.`
+      : `${status} — good airspace environment. LAANC self-authorization available. Nearest: ${nearStr}.`,
+  };
+}
+
 // ── Quadrant Plot ─────────────────────────────────────────────
 function QuadrantPlot({ site, demand, previous }) {
   const W=224,H=224,pad=30,plotW=W-pad*2,plotH=H-pad*2;
@@ -1345,7 +1745,178 @@ function parseCoords(lat,lon){const la=parseFloat(lat),lo=parseFloat(lon);if(isN
 const ADDR_EXAMPLES=["8900 Will Clayton Pkwy, Humble TX","6900 N Loop E, Houston TX","1400 Post Oak Blvd, Houston TX"];
 const COORD_EXAMPLES=[{label:"Willow Waterhole",lat:"29.6620",lon:"-95.5197"},{label:"Texas Medical Center",lat:"29.7079",lon:"-95.4010"},{label:"Ship Channel",lat:"29.7355",lon:"-95.2307"}];
 
+// ── Beta email gate ───────────────────────────────────────────
+const ROLES = [
+  "Property owner",
+  "Real estate broker / agent",
+  "Portfolio manager",
+  "Logistics / cargo operator",
+  "Developer / investor",
+  "Consultant / advisor",
+  "Other",
+];
+
+function EmailGate({ onAccess }) {
+  const [firstName, setFirstName] = useState("");
+  const [email, setEmail]         = useState("");
+  const [role, setRole]           = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr]             = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!email.trim() || !role) return;
+    setSubmitting(true); setErr(null);
+    // HubSpot submission — non-blocking, gate passes regardless
+    try {
+      const pid  = import.meta.env.VITE_HUBSPOT_PORTAL_ID;
+      const fgid = import.meta.env.VITE_HUBSPOT_FORM_GUID;
+      if (pid && fgid) {
+        fetch(`https://api.hsforms.com/submissions/v3/integration/submit/${pid}/${fgid}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fields: [
+              { name: "email",     value: email.trim() },
+              { name: "firstname", value: firstName.trim() },
+              { name: "jobtitle",  value: role },
+            ],
+            context: { pageUri: window.location.href, pageName: "Vertiport Eval Beta" },
+          }),
+        }).catch(() => {});
+      }
+    } catch (_) {}
+    localStorage.setItem("veval_beta_access", JSON.stringify({ email: email.trim(), role, ts: Date.now() }));
+    onAccess();
+  }
+
+  const inp = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6,
+    color: C.textBright, fontFamily: "'IBM Plex Mono',monospace", fontSize: 13,
+    padding: "10px 14px", width: "100%", outline: "none" };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(240,245,250,0.92)", backdropFilter:"blur(6px)",
+      display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12,
+        padding:"36px 40px", width:"100%", maxWidth:420, boxShadow:"0 8px 40px rgba(91,155,213,0.12)" }}>
+        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, letterSpacing:"0.2em",
+          color:C.amberDim, marginBottom:10 }}>FREE BETA ACCESS</div>
+        <h2 style={{ fontFamily:"'Orbitron',monospace", fontSize:18, color:C.textBright,
+          margin:"0 0 6px" }}>Start evaluating sites</h2>
+        <p style={{ fontSize:13, color:C.textDim, margin:"0 0 24px", lineHeight:1.5 }}>
+          No credit card. No commitment. We'll share occasional updates on new features.
+        </p>
+        <form onSubmit={handleSubmit} style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <input placeholder="First name (optional)" value={firstName}
+            onChange={e=>setFirstName(e.target.value)} style={inp}/>
+          <input type="email" placeholder="Email address *" value={email} required
+            onChange={e=>setEmail(e.target.value)} style={inp}/>
+          <select required value={role} onChange={e=>setRole(e.target.value)}
+            style={{...inp, color: role ? C.textBright : C.textDim}}>
+            <option value="" disabled>Your role *</option>
+            {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+          </select>
+          {err && <div style={{ fontSize:12, color:C.red }}>{err}</div>}
+          <button type="submit" disabled={submitting || !email || !role}
+            style={{ background:C.amber, color:"#fff", border:"none", borderRadius:6,
+              fontFamily:"'IBM Plex Mono',monospace", fontSize:12, letterSpacing:"0.1em",
+              padding:"12px", cursor:"pointer", marginTop:4, opacity: (!email||!role)?0.5:1 }}>
+            {submitting ? "SUBMITTING…" : "GET ACCESS →"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Landing page ──────────────────────────────────────────────
+function LandingPage({ onStart }) {
+  const [showGate, setShowGate] = useState(false);
+
+  const feat = [
+    { icon: "▣", title: "Site Score", body: "Parcel size, FAA airspace class, zoning, flood risk, and grid capacity — scored against FAA and NREL vertiport standards." },
+    { icon: "◎", title: "Demand Score", body: "Employment density, medical facilities, cargo infrastructure, and transit gaps — calibrated for eVTOL cargo-first operations." },
+    { icon: "◈", title: "Priority Index", body: "Site × 0.60 + Demand × 0.40. Quadrant placement tells you exactly where to focus your due diligence." },
+  ];
+
+  return (
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'IBM Plex Sans',sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&family=Orbitron:wght@700;900&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0;}
+        .lp-cta:hover{background:${C.textBright}!important;box-shadow:0 0 32px rgba(34,34,34,0.15)!important;}
+        .lp-feat:hover{border-color:${C.amber}!important;transform:translateY(-2px);transition:all 0.2s;}
+      `}</style>
+
+      {/* Nav */}
+      <nav style={{ padding:"20px 40px", display:"flex", alignItems:"center", justifyContent:"space-between",
+        borderBottom:`1px solid ${C.border}` }}>
+        <div style={{ fontFamily:"'Orbitron',monospace", fontSize:13, fontWeight:900,
+          color:C.textBright, letterSpacing:"0.1em" }}>VERTIPORT EVAL</div>
+        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+          letterSpacing:"0.2em", background:C.card, padding:"4px 10px", borderRadius:20,
+          border:`1px solid ${C.border}` }}>PHASE 1 BETA · TEXAS</div>
+      </nav>
+
+      {/* Hero */}
+      <section style={{ maxWidth:760, margin:"0 auto", padding:"80px 40px 60px", textAlign:"center" }}>
+        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, letterSpacing:"0.25em",
+          color:C.amberDim, marginBottom:16 }}>FAA · FEMA · HCAD · NREL · EIA · OSM</div>
+        <h1 style={{ fontFamily:"'Orbitron',monospace", fontSize:"clamp(24px,4vw,42px)",
+          fontWeight:900, color:C.textBright, lineHeight:1.15, marginBottom:20 }}>
+          Is your site ready<br/>for eVTOL?
+        </h1>
+        <p style={{ fontSize:17, color:C.text, lineHeight:1.65, maxWidth:540, margin:"0 auto 36px" }}>
+          Enter an address. Get a two-axis feasibility score built on live government data.
+          Find out in 30 seconds whether your site can support a vertiport — before you spend
+          a dollar on engineering.
+        </p>
+        <button className="lp-cta" onClick={()=>setShowGate(true)}
+          style={{ background:C.textBright, color:"#fff", border:"none", borderRadius:8,
+            fontFamily:"'IBM Plex Mono',monospace", fontSize:13, letterSpacing:"0.12em",
+            padding:"16px 40px", cursor:"pointer", transition:"all 0.18s" }}>
+          EVALUATE A SITE — FREE
+        </button>
+        <div style={{ fontSize:12, color:C.textDim, marginTop:12 }}>
+          No credit card. Texas sites only during beta.
+        </div>
+      </section>
+
+      {/* Feature cards */}
+      <section style={{ maxWidth:900, margin:"0 auto", padding:"0 40px 80px",
+        display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))", gap:20 }}>
+        {feat.map(f=>(
+          <div key={f.title} className="lp-feat"
+            style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10,
+              padding:"24px 24px 28px", transition:"all 0.2s" }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:20,
+              color:C.amber, marginBottom:10 }}>{f.icon}</div>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11,
+              fontWeight:600, color:C.textBright, letterSpacing:"0.1em",
+              marginBottom:8 }}>{f.title.toUpperCase()}</div>
+            <p style={{ fontSize:13, color:C.text, lineHeight:1.6 }}>{f.body}</p>
+          </div>
+        ))}
+      </section>
+
+      {/* Footer */}
+      <footer style={{ borderTop:`1px solid ${C.border}`, padding:"20px 40px",
+        display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:C.textDim }}>
+          BUSINESSAVIATION.AERO
+        </span>
+        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:C.textDim }}>
+          FAA/NREL CALIBRATED · PHASE 1 TEXAS
+        </span>
+      </footer>
+
+      {showGate && <EmailGate onAccess={onStart} />}
+    </div>
+  );
+}
+
 export default function App() {
+  const [gated, setGated] = useState(() => !!localStorage.getItem("veval_beta_access"));
   const [mode,setMode]=useState("address");
   const [address,setAddress]=useState("");
   const [lat,setLat]=useState("");const [lon,setLon]=useState("");const [siteLabel,setSiteLabel]=useState("");
@@ -1355,6 +1926,8 @@ export default function App() {
   const [previous,setPrevious]=useState(null);
   const [error,setError]=useState(null);
   const [pdfGenerating,setPdfGenerating]=useState(false);
+
+  if (!gated) return <LandingPage onStart={() => setGated(true)} />;
 
   const canRun=phase!=="loading"&&(mode==="address"?address.trim().length>0:parseCoords(lat,lon)!==null);
 
@@ -1387,20 +1960,70 @@ export default function App() {
       // Flying days estimate — NOAA climate normals
       const flyData = estimateFlyingDays(data.geocode.lat, data.geocode.lon);
       addL(`Flying days: ${flyData.flyingDays}/yr · ${flyData.rating}`,"done");
-      const eiaLogIdx = logs.length; addL("EIA power grid layer → fetching...","running");
+      // FAA airspace — synchronous, no API call
+      const airspaceResult = scoreAirspace(data.geocode.lat, data.geocode.lon);
+      const oldAirspaceScore = data.site?.airspace?.score || 0;
+      data.site.airspace = { ...data.site.airspace, ...airspaceResult };
+      data.site.composite = Math.min(100, Math.round(
+        (data.site?.composite || 0) - (oldAirspaceScore * 0.25) + (airspaceResult.score * 0.25)
+      ));
+      addL(`FAA → ${airspaceResult.status} · score ${airspaceResult.score}/100 · ${airspaceResult.nearest_airport}`, "done");
+      const eiaLogIdx  = logs.length; addL("EIA power grid layer → fetching...","running");
       const nrelLogIdx = logs.length; addL("NREL community DER layer → fetching...","running");
+      const hcadLogIdx = logs.length; addL("Harris County parcel → fetching...","running");
+      const femaLogIdx = logs.length; addL("FEMA NFHL + USGS elevation → fetching...","running");
+      const osmLogIdx  = logs.length; addL("OSM zoning → fetching...","running");
       const flags=[...(data.site?.parcel?.flags||[]),...(data.site?.airspace?.flags||[]),...(data.site?.zoning?.flags||[]),...(data.site?.soil?.flags||[])];
-      const [eiaSettled, nrelSettled] = await Promise.allSettled([
+      const [eiaSettled, nrelSettled, hcadSettled, femaSettled, osmSettled] = await Promise.allSettled([
         fetchEIAPowerScore(data.geocode.lat, data.geocode.lon, data.site?.zoning?.score || 50),
         fetchNRELDERScore(data.geocode.lat, data.geocode.lon),
+        fetchHarrisParcelScore(data.geocode.lat, data.geocode.lon),
+        fetchFEMAFloodScore(data.geocode.lat, data.geocode.lon),
+        fetchZoningScore(data.geocode.lat, data.geocode.lon),
       ]);
       const eia  = eiaSettled.status  === "fulfilled" ? eiaSettled.value  : null;
       const nrel = nrelSettled.status === "fulfilled" ? nrelSettled.value : null;
+      const hcad = hcadSettled.status === "fulfilled" ? hcadSettled.value : null;
+      const fema = femaSettled.status === "fulfilled" ? femaSettled.value : null;
+      const osm  = osmSettled.status  === "fulfilled" ? osmSettled.value  : null;
       if (eia)  setL(eiaLogIdx,  `EIA → Power Grid & DER: ${eia.score}/100`,  "done");
       else      setL(eiaLogIdx,  `EIA → ${eiaSettled.reason?.message||"fetch failed"}`, "warn");
       if (nrel) setL(nrelLogIdx, `NREL → Community DER: ${nrel.score}/100`,   "done");
       else      setL(nrelLogIdx, `NREL → ${nrelSettled.reason?.message||"fetch failed"}`, "warn");
-      const fullResults = {...data,flags,eia,nrel,heliport:heli,flyingDays:flyData};
+      if (hcad) {
+        setL(hcadLogIdx, `HCAD → Parcel: ${hcad.acreage_estimate} ac · score ${hcad.score}/100`, "done");
+        const oldParcelScore = data.site?.parcel?.score || 0;
+        data.site.parcel = { ...data.site.parcel, ...hcad };
+        data.site.composite = Math.min(100, Math.round(
+          (data.site?.composite || 0) - (oldParcelScore * 0.25) + (hcad.score * 0.25)
+        ));
+      } else {
+        setL(hcadLogIdx, `HCAD → ${hcadSettled.reason?.message || "fetch failed"}`, "warn");
+      }
+      if (fema) {
+        const elevNote = fema.elevation_ft !== null ? ` · ${fema.elevation_ft} ft elev` : "";
+        setL(femaLogIdx, `FEMA → ${fema.flood_zone} · score ${fema.score}/100${elevNote}`, "done");
+        const oldSoilScore = data.site?.soil?.score || 0;
+        data.site.soil = { ...data.site.soil, ...fema };
+        data.site.composite = Math.min(100, Math.round(
+          (data.site?.composite || 0) - (oldSoilScore * 0.10) + (fema.score * 0.10)
+        ));
+        flags.push(...(fema.flags || []));
+      } else {
+        setL(femaLogIdx, `FEMA → ${femaSettled.reason?.message || "fetch failed"}`, "warn");
+      }
+      if (osm) {
+        setL(osmLogIdx, `OSM → ${osm.land_use} (${osm._raw}) · score ${osm.score}/100`, "done");
+        const oldZoningScore = data.site?.zoning?.score || 0;
+        data.site.zoning = { ...data.site.zoning, ...osm };
+        data.site.composite = Math.min(100, Math.round(
+          (data.site?.composite || 0) - (oldZoningScore * 0.15) + (osm.score * 0.15)
+        ));
+        flags.push(...(osm.flags || []));
+      } else {
+        setL(osmLogIdx, `OSM → ${osmSettled.reason?.message || "fetch failed"}`, "warn");
+      }
+      const fullResults = {...data,flags,eia,nrel,hcad,fema,osm,heliport:heli,flyingDays:flyData};
       const regChecklist = buildRegulatoryChecklist(fullResults);
       addL(`Regulatory checklist: ${regChecklist.filter(r=>r.status==="required").length} required, ${regChecklist.filter(r=>r.urgency==="critical").length} critical`,"done");
       fullResults.regulatory = regChecklist;
