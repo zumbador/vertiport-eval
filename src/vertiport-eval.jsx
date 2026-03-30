@@ -1933,6 +1933,30 @@ export default function App() {
 
   async function run(){
     if(!canRun)return;
+
+    // ── Rate limiting (localStorage) ──────────────────────────
+    const RL_KEY      = "veval_rl";
+    const DAILY_LIMIT = 10;
+    const COOLDOWN_MS = 30_000; // 30 seconds between runs
+    const DAY_MS      = 86_400_000;
+    const now         = Date.now();
+    const rl          = JSON.parse(localStorage.getItem(RL_KEY) || "[]");
+    const last        = rl.at(-1) ?? 0;
+    const cooldownLeft = Math.ceil((last + COOLDOWN_MS - now) / 1000);
+    if (cooldownLeft > 0) {
+      setError(`Please wait ${cooldownLeft}s before running another evaluation.`);
+      setPhase("error"); return;
+    }
+    const today = rl.filter(ts => now - ts < DAY_MS);
+    if (today.length >= DAILY_LIMIT) {
+      const resetIn = Math.ceil((today[0] + DAY_MS - now) / 3_600_000 * 10) / 10;
+      setError(`Daily limit of ${DAILY_LIMIT} evaluations reached. Resets in ${resetIn}h.`);
+      setPhase("error"); return;
+    }
+    today.push(now);
+    localStorage.setItem(RL_KEY, JSON.stringify(today));
+    // ─────────────────────────────────────────────────────────
+
     if(results)setPrevious(results);
     setPhase("loading");setResults(null);setError(null);
     const logs=[];
