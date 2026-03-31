@@ -1,4 +1,5 @@
 import { useState } from "react";
+import aamLogo from './assets/aam_logo.png';
 import { jsPDF } from "jspdf";
 import { findNearestHeliport } from './heliportLookup.js';
 import { TX_AIRSPACE } from './txAirspace.js';
@@ -85,11 +86,14 @@ function getQuadrant(site, demand, evalMode = "passenger") {
 }
 
 // ── PDF Generation ─────────────────────────────────────────
-function generatePDF(results) {
+function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = 210, margin = 18;
   const col = margin, colR = W - margin;
   let y = 0;
+  const SAFE_BOTTOM = 268;
+  const newPage = () => { doc.addPage(); y = 15; };
+  const addPageLogo = () => { if (logoDataUrl) doc.addImage(logoDataUrl, "PNG", colR - 12, 4, 13, 13); };
 
   // Color helpers
   const hex = (h) => {
@@ -113,20 +117,28 @@ function generatePDF(results) {
   setFill("#FFFFFF");
   doc.rect(0, 0, 4, 38, "F");
 
+  // Logo
+  if (logoDataUrl) doc.addImage(logoDataUrl, "PNG", col + 4, 4, 30, 30);
+  const txtX = logoDataUrl ? col + 40 : col + 6;
+
   setTxt("#FFFFFF");
   doc.setFont("helvetica","bold");
   doc.setFontSize(18);
-  doc.text("VERTIPORT", col + 6, 14);
+  doc.text("VERTIPORT", txtX, 14);
   doc.setFontSize(8);
   doc.setFont("helvetica","normal");
   setTxt("#daeaf6");
   const modeLabel = results.evalMode === "cargo" ? "CARGO" : results.evalMode === "combo" ? "CARGO + PAX" : "PASSENGER";
-  doc.text(`SITE EVALUATION SYSTEM  ·  ${modeLabel}  ·  FAA/NREL CALIBRATED  ·  TEXAS BETA`, col + 6, 20);
+  doc.text(`SITE EVALUATION SYSTEM  ·  ${modeLabel}  ·  FAA/NREL CALIBRATED  ·  TEXAS BETA`, txtX, 20);
 
+  // Branding — right side
+  setTxt("#FFFFFF");
+  doc.setFont("helvetica","bold"); doc.setFontSize(7);
+  doc.text("LOWALTITUDEECONOMY.AERO", colR, 12, {align:"right"});
   setTxt("#daeaf6");
-  doc.setFontSize(7.5);
-  doc.text(`Generated: ${new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"})}`, col + 6, 27);
-  doc.text("Phase 1 — Texas  ·  Two-Axis Scoring Model", col + 6, 32);
+  doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+  doc.text(`Generated: ${new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"})}`, colR, 19, {align:"right"});
+  doc.text("Phase 1 — Texas  ·  Two-Axis Scoring Model", colR, 25, {align:"right"});
 
   // ── Site name ──
   y = 46;
@@ -236,6 +248,7 @@ function generatePDF(results) {
   ];
 
   siteCriteria.forEach((cr) => {
+    if (y + 15 > SAFE_BOTTOM) newPage();
     const rowH = 13;
     const sc = cr.score;
     const cCol = sc === null ? "#9ab8d0" : sc >= 75 ? "#1a8a58" : sc >= 45 ? "#c87a10" : "#C0392B";
@@ -287,6 +300,7 @@ function generatePDF(results) {
   }));
 
   demandCriteria.forEach((cr) => {
+    if (y + 15 > SAFE_BOTTOM) newPage();
     const rowH = 13;
     const sc = cr.score || 0;
     const cCol = sc >= 75 ? "#1a8a58" : sc >= 45 ? "#c87a10" : "#C0392B";
@@ -320,9 +334,11 @@ function generatePDF(results) {
   // ── Flags ──
   const flags = results.flags || [];
   if (flags.length > 0) {
+    if (y + 20 > SAFE_BOTTOM) newPage();
     y += 3;
     y = sectionHeader("FLAGS — ITEMS REQUIRING INVESTIGATION", y);
     flags.forEach((flag) => {
+      if (y + 12 > SAFE_BOTTOM) newPage();
       const lines = doc.splitTextToSize("⚑  " + flag, W - margin*2 - 6);
       const fH = lines.length * 4.5 + 5;
       setFill("#FFF8E8"); setDraw("#e8c040");
@@ -337,6 +353,7 @@ function generatePDF(results) {
   // ── Flying Days ──
   const fly = results.flyingDays;
   if (fly) {
+    if (y + 50 > SAFE_BOTTOM) newPage();
     y += 3;
     y = sectionHeader("ESTIMATED FLYING DAYS PER YEAR", y);
     // Summary row
@@ -379,6 +396,7 @@ function generatePDF(results) {
   const strengths = results.top_strengths || [];
   const concerns = (results.top_concerns || []).filter(Boolean);
   if (strengths.length || concerns.length) {
+    if (y + (strengths.length + concerns.length) * 6 + 12 > SAFE_BOTTOM) newPage();
     y += 3;
     setFill("#F9F9F9");
     doc.rect(col, y, W - margin*2, (strengths.length + concerns.length) * 6 + 8, "F");
@@ -395,16 +413,36 @@ function generatePDF(results) {
     y += 6;
   }
 
-  // ── Regulatory Checklist (page 2) ──
+  // ── Site Map ──
+  if (mapDataUrl) {
+    doc.addPage();
+    y = 0;
+    setFill("#5B9BD5"); doc.rect(0, 0, W, 22, "F");
+    setFill("#FFFFFF"); doc.rect(0, 0, 4, 22, "F");
+    addPageLogo();
+    setTxt("#FFFFFF"); doc.setFont("helvetica","bold"); doc.setFontSize(12);
+    doc.text("SITE MAP", col + 6, 10);
+    setTxt("#daeaf6"); doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(`${results.geocode.matched || "Site"} · ${results.geocode.lat?.toFixed(5)}°N · ${Math.abs(results.geocode.lon)?.toFixed(5)}°W · Satellite imagery via Mapbox`, col + 6, 17);
+    y = 28;
+    const imgW = W - margin * 2;
+    const imgH = imgW * (300 / 600);
+    doc.addImage(mapDataUrl, "JPEG", col, y, imgW, imgH);
+    y += imgH + 6;
+    setTxt("#999999"); doc.setFont("helvetica","normal"); doc.setFontSize(6);
+    doc.text("Map for orientation only. Verify site boundaries, parcel lines, and airspace limits with official sources before proceeding.", col, y);
+  }
+
+  // ── Regulatory Checklist ──
   const regItems = results.regulatory || [];
   if (regItems.length > 0) {
     doc.addPage();
     y = 0;
-    // Page 2 header
     setFill("#5B9BD5");
     doc.rect(0, 0, W, 22, "F");
     setFill("#FFFFFF");
     doc.rect(0, 0, 4, 22, "F");
+    addPageLogo();
     setTxt("#FFFFFF");
     doc.setFont("helvetica","bold"); doc.setFontSize(12);
     doc.text("REGULATORY CHECKLIST", col + 6, 10);
@@ -478,11 +516,11 @@ function generatePDF(results) {
   if (inv) {
     doc.addPage();
     y = 0;
-    // Header
     setFill("#5B9BD5");
     doc.rect(0, 0, W, 22, "F");
     setFill("#FFFFFF");
     doc.rect(0, 0, 4, 22, "F");
+    addPageLogo();
     setTxt("#FFFFFF");
     doc.setFont("helvetica","bold"); doc.setFontSize(12);
     doc.text("INVESTMENT / VIABILITY SUMMARY", col + 6, 10);
@@ -636,6 +674,7 @@ function generatePDF(results) {
     y = 0;
     setFill("#5B9BD5"); doc.rect(0, 0, W, 22, "F");
     setFill("#FFFFFF"); doc.rect(0, 0, 4, 22, "F");
+    addPageLogo();
     setTxt("#FFFFFF"); doc.setFont("helvetica","bold"); doc.setFontSize(11);
     doc.text("MODE COMPARISON", col + 6, 10);
     setTxt("#daeaf6"); doc.setFont("helvetica","normal"); doc.setFontSize(7);
@@ -2300,7 +2339,21 @@ export default function App() {
     setPdfGenerating(true);
     try{
       const dr={...results,...(results.modes?.[demandTab]||{}),evalMode:demandTab};
-      generatePDF(dr);
+      // Load logo for PDF header
+      let logoDataUrl=null;
+      try{logoDataUrl=await new Promise((res,rej)=>{const img=new Image();img.onload=()=>{const c=document.createElement("canvas");c.width=img.width;c.height=img.height;c.getContext("2d").drawImage(img,0,0);res(c.toDataURL("image/png"));};img.onerror=rej;img.src=aamLogo;});}catch(e){console.warn("Logo load failed:",e);}
+
+      let mapDataUrl=null;
+      const mapToken=import.meta.env.VITE_MAPBOX_TOKEN;
+      if(mapToken&&dr.geocode?.lat&&dr.geocode?.lon){
+        try{
+          const {lat,lon}=dr.geocode;
+          const mapUrl=`https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/pin-l+e63946(${lon},${lat})/${lon},${lat},14,0/600x300?access_token=${mapToken}`;
+          const resp=await fetch(mapUrl);
+          if(resp.ok){const blob=await resp.blob();mapDataUrl=await new Promise(res=>{const r=new FileReader();r.onloadend=()=>res(r.result);r.readAsDataURL(blob);});}
+        }catch(e){console.warn("Map image fetch failed:",e);}
+      }
+      generatePDF(dr,mapDataUrl,logoDataUrl);
     }
     catch(err){ console.error("PDF error:",err); alert("PDF generation failed: "+err.message); }
     finally{ setPdfGenerating(false); }
@@ -2337,17 +2390,20 @@ export default function App() {
         {/* Header */}
         <div style={{marginBottom:36,paddingBottom:24,borderBottom:`1px solid ${C.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
-            <div style={{display:"flex",gap:3}}>{[40,28,18].map((h,i)=><div key={i} style={{width:3,height:h,background:i===0?C.amber:i===1?C.amberDim:C.border,borderRadius:2}}/>)}</div>
+            <img src={aamLogo} alt="LAE logo" style={{width:44,height:44,objectFit:"contain",flexShrink:0}}/>
             <div>
               <div style={{fontFamily:"'Orbitron',monospace",fontSize:20,fontWeight:900,color:C.textBright,letterSpacing:"0.2em"}}>VERTIPORT</div>
               <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.amberDim,letterSpacing:"0.25em",marginTop:2}}>SITE EVALUATION SYSTEM</div>
             </div>
-            <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-              <div className="blink" style={{width:6,height:6,borderRadius:"50%",background:C.green,boxShadow:`0 0 8px ${C.green}`}}/>
-              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em"}}>HOUSTON BETA</span>
+            <div style={{marginLeft:"auto",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,letterSpacing:"0.15em"}}>LOWALTITUDEECONOMY.AERO</div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <div className="blink" style={{width:6,height:6,borderRadius:"50%",background:C.green,boxShadow:`0 0 8px ${C.green}`}}/>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em"}}>HOUSTON BETA</span>
+              </div>
             </div>
           </div>
-          <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.textLabel,paddingLeft:20}}>
+          <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.textLabel,paddingLeft:58}}>
             FAA/NREL-calibrated · Site + Demand two-axis scoring · Priority Index · PDF report export
           </div>
         </div>
