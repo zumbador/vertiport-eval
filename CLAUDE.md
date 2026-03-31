@@ -115,7 +115,7 @@ From the FAA Vertiport Electrical Infrastructure Study (NREL) in /research:
 
 ## Validated Test Sites
 
-Live-data baseline as of Mar 29, 2026. Scores reflect HCAD parcel, FEMA flood,
+Live-data baseline as of Mar 30, 2026. Scores reflect HCAD parcel, FEMA flood,
 FAA airspace (Haversine), EIA, and NREL live APIs. LLM estimates only for zoning
 and demand sub-criteria.
 
@@ -126,6 +126,8 @@ and demand sub-criteria.
 | TMC (29.7079, -95.4010)           | 61   | 100    | 77  | PRIME SITE           | Medical heliport +14/18, parcel 9.07 ac, Zone X 500-yr flood |
 | Willow Waterhole (29.6620,-95.52) | 58   | 36     | 49  | Infrastructure Play  | Parcel 5.9 ac, Zone X minimal, demand lower than LLM estimated |
 | AT&T Stadium, Arlington TX        | 71   | 78     | 74  | PRIME SITE           | Cowboys heliport +10/7, outside Harris County (parcel = LLM est.) |
+| IAH (29.9902, -95.3368)           | 47   | 79     | 60  | Demand Without Site  | Class B SFC airspace drags site; OSM aerodrome 92; demand anchored by hub airport |
+| 5402 Harborside Dr, Galveston TX  | 51   | 80     | 63  | Demand Without Site  | Zone AE coastal, GLS airspace; seaport/cruise scoring; causeway access flagged |
 
 ---
 
@@ -164,15 +166,35 @@ Done:
 - OSM/Overpass zoning wired — fetchZoningScore(), is_in + around:100m parallel queries,
   landuse and building tag scoring, LLM fallback for unmapped suburban areas [Mar 29]
 - Validated benchmarks recalibrated against live data — all 5 test sites re-run [Mar 29]
+- Recent Reports panel — localStorage, last 10 evaluations, LOAD (instant restore) +
+  RE-RUN (fresh API calls) buttons, deduplicates by address [Mar 30]
+- Scoring fixes — PRIME SITE demand threshold raised 55→70 to match color scale [Mar 30]
+- Airport demand calibration — passenger DESTINATIONS now has 3 airport tiers:
+  international/hub 80-95, regional 65-80, GA 45-62; IAH passenger benchmark added [Mar 30]
+- OSM aeroway support — fetchZoningScore() now detects aeroway tags (aerodrome, terminal,
+  hangar, apron, helipad etc.); airports no longer fall back to LLM estimate [Mar 30]
+- Port/cruise terminal scoring — cargo LOGISTICS_HUB adds seaport/cruise homeport top
+  tier (90-100); LAST_MILE scores on container throughput not population for port sites;
+  CARGO_NETWORK on-port tier (90-100); PRIORITY_FREIGHT international container tier;
+  GROUND_ACCESS barrier island/causeway bracket; Galveston + Texas City benchmarks
+  added across cargo, passenger, combo modes [Mar 30]
+- PDF page overflow fixed — SAFE_BOTTOM (268mm) checks added before flags, flying days,
+  strengths/concerns; per-row checks in criteria loops; flying days now visible [Mar 30]
+- PDF satellite map page — Mapbox Static Images API, red site pin, inserted before
+  regulatory checklist [Mar 30]
+- LAE branding — aam_logo.png added to UI header + all PDF page headers;
+  LOWALTITUDEECONOMY.AERO branding in PDF header right side [Mar 30]
 
 Next up (do in Claude Code):
-- Save evaluated sites — localStorage, full results JSON + timestamp, reload without re-running APIs/Claude, evict oldest when near 5MB cap, "Re-run" button to refresh stale data
-- Nationwide address support — expand txAirspace.js to all US Class B/C/D (~500 airports, static FAA NASR extract), expand heliport layer to national NASR dataset, expand flyingDays.js to national NOAA stations, update UI copy (remove "Texas Beta" scope references)
+- Nationwide address support — expand txAirspace.js to all US Class B/C/D (~500 airports,
+  static FAA NASR extract), expand heliport layer to national NASR dataset, expand
+  flyingDays.js to national NOAA stations, update UI copy (remove "Texas Beta" references)
 - Multi-site / network view (quadrant chart supports multiple points)
 - Rate limiting for beta launch (currently disabled for dev)
 - Beta landing page and email signup (HubSpot integration — free tier creates contact)
 - Parcel APIs for other TX counties (Dallas/Tarrant/Travis/Bexar — currently LLM fallback)
-- Pro tier: user-adjustable demand criterion weights — sliders for the 5 demand criteria per mode, recomputes demand score + PI live, free tier gets defaults only, weights never expose underlying score math
+- Pro tier: user-adjustable demand criterion weights — sliders for the 5 demand criteria
+  per mode, recomputes demand score + PI live, free tier gets defaults only
 
 Done (remove when stale):
 - Replace remaining knowledge-base scoring estimates with live API calls ✅
@@ -180,6 +202,11 @@ Done (remove when stale):
 - Style PDF report to match site aesthetic ✅
 - Parallel passenger/cargo/combo evaluation with demand mode switcher ✅
 - PDF mode comparison page ✅
+- Recent Reports panel with LOAD + RE-RUN ✅
+- PDF satellite map page ✅
+- LAE branding in UI and PDF ✅
+- Airport and port/cruise terminal demand scoring ✅
+- OSM aeroway detection ✅
 
 ---
 
