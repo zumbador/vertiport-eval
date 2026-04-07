@@ -816,7 +816,7 @@ GROUND_ACCESS (10%): Direct truck dock + highway ramp=80-100. Good road network=
 DEMAND_COMPOSITE = logistics_hub*0.30 + last_mile*0.25 + cargo_network*0.20 + priority_freight*0.15 + ground_access*0.10.`,
 
     combo: `DEMAND CRITERIA (CARGO + PASSENGER COMBO):
-LOGISTICS_HUB (25%): Logistics/fulfillment infrastructure — score same scale as cargo mode.
+LOGISTICS_HUB (25%): Major seaport/container terminal or cruise homeport=90-100. Major fulfillment/distribution center adjacent=85-95. Industrial/logistics park=65-82. Near freight corridor=45-65. Commercial mixed use=25-45. Residential=5-20.
 EMPLOYMENT (25%): Employment density AND major passenger destinations combined. Business districts with logistics workers=80-100. Suburban commercial=45-70. Residential=10-30.
 CARGO_NETWORK (20%): Freight network value AND transit connectivity. On-port or airport adjacent=88-100. Good highway + transit=55-75. Car-dependent=25-50.
 PRIORITY_FREIGHT (15%): Medical supply routes AND hospital/institutional passenger demand combined. TMC area=85-100. Regional hospital + freight=55-75. Neither=10-30.
@@ -839,6 +839,7 @@ DEMAND_COMPOSITE = logistics_hub*0.25 + employment*0.25 + cargo_network*0.20 + p
   const em = evalMode in demandSchemas ? evalMode : "passenger";
 
   return `You are a vertiport site feasibility scoring engine. Evaluation mode: ${em.toUpperCase()}. Score two axes: SITE (can infrastructure be built here?) and DEMAND.
+Return integer scores only. Apply the rubric ranges literally — do not extrapolate outside them. When a site matches a range, use the midpoint of that range as your score. Do not adjust scores based on general knowledge outside the rubric.
 
 Location: ${locationDesc}
 ${coordNote}
@@ -869,7 +870,7 @@ async function analyzeWithClaude(input, inputMode, evalMode = "passenger") {
         "anthropic-version": "2023-06-01",
         "anthropic-dangerous-direct-browser-access": "true",
       },
-      body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2000, messages:[{role:"user",content:buildPrompt(input,inputMode,evalMode)}] }),
+      body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2000, temperature:0, messages:[{role:"user",content:buildPrompt(input,inputMode,evalMode)}] }),
     });
     clearTimeout(timeout);
     if (!response.ok) { const t=await response.text(); throw new Error(`API ${response.status}: ${t.slice(0,120)}`); }
@@ -925,7 +926,7 @@ async function fetchEIAPowerScore(lat, lon, zoningScore) {
   const notes = score >= 75 ? "ERCOT grid + strong load base. Three-phase access likely near commercial zones."
     : score >= 50 ? "ERCOT grid adequate. Verify transformer capacity for 1 MW+ peak DC loads."
     : "Grid access uncertain for high-power charging. Engineering study required.";
-  return { score, details: { "Grid":"ERCOT (TX deregulated)", "TX sales":eiaSales, "Year":eiaLive ? eiaYear : "EIA v2 unavailable — baseline used" }, notes };
+  return { score, details: { "Grid":"ERCOT (TX deregulated)", "TX sales":eiaSales, "Year":eiaLive ? eiaYear : "EIA v2 unavailable — baseline used" }, notes, _live: eiaLive };
 }
 
 // ── NREL Community DER Support score ─────────────────────────
@@ -2303,6 +2304,26 @@ export default function App() {
         siteData.composite=Math.min(100,Math.round((siteData?.composite||0)-(oldZ*0.15)+(osm.score*0.15)));
         flags.push(...(osm.flags||[]));
       } else setL(osmIdx,`OSM → ${osmS.reason?.message||"fetch failed"}`,"warn");
+
+      // ── API source audit log ───────────────────────────────
+      console.group("[VES] API source audit");
+      console.log("Claude API:    temperature=0 · model=claude-sonnet-4-6 · 3 parallel calls (pax/cargo/combo)");
+      console.log("FAA airspace:  static dataset ·", airspaceResult.status, "· score", airspaceResult.score, "·", airspaceResult.nearest_airport);
+      console.log("EIA power:",    eia?._live ? `live · score ${eia.score}` : `FALLBACK (baseline) · score ${eia?.score??0}`);
+      const nrelMeta = nrel?._meta || {};
+      console.log("NREL utility:", nrelMeta.utilityLive ? `live · ${nrel.score} pts` : "FALLBACK (TX baseline)");
+      console.log("NREL solar:",   nrelMeta.solarLive   ? `live · GHI from API`      : "FALLBACK (TX baseline)");
+      console.log("HCAD parcel:", hcad ? `live · ${hcad.acreage_estimate} ac · score ${hcad.score}` : `FALLBACK (LLM estimate) · ${hcadS.reason?.message||"no coverage"}`);
+      if (fema) {
+        const fs = fema._source || {};
+        console.log("FEMA NFHL:",   fs.fema ? `live · ${fema.flood_zone} · score ${fema.score}` : `FALLBACK (estimate) · score ${fema.score}`);
+        console.log("USGS elev:",   fs.usgs ? `live · ${fema.elevation_ft} ft` : "FALLBACK (not available)");
+      } else {
+        console.log("FEMA NFHL:    FALLBACK ·", femaS.reason?.message||"fetch failed");
+        console.log("USGS elev:    FALLBACK");
+      }
+      console.log("OSM zoning:",  osm ? `live · ${osm.land_use} (${osm._raw}) · score ${osm.score}` : `FALLBACK (LLM estimate) · ${osmS.reason?.message||"no data"}`);
+      console.groupEnd();
 
       // ── Build per-mode results ─────────────────────────────
       const sharedBase={geocode:base.geocode,site:siteData,flags,eia,nrel,hcad,fema,osm,heliport:heli,flyingDays:flyData};
