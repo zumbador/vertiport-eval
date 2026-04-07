@@ -2481,10 +2481,15 @@ export default function App() {
                 <div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:`1px solid ${C.border}`,background:C.bg}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:C.textBright,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.display}</div>
-                    <div style={{display:"flex",gap:14,marginTop:3,alignItems:"center"}}>
-                      <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim}}>S:{r.scores.site} · D:{r.scores.demand} · PI:{r.scores.pi}</span>
-                      <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:q.color}}>{q.label}</span>
-                    </div>
+                    <div style={{marginTop:3}}><span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:q.color}}>{q.label}</span></div>
+                  </div>
+                  <div style={{display:"flex",gap:6,whiteSpace:"nowrap",flexShrink:0}}>
+                    {[["S",r.scores.site],["D",r.scores.demand],["PI",r.scores.pi]].map(([label,val])=>(
+                      <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:"4px 9px",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                        <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim,letterSpacing:"0.12em"}}>{label}</span>
+                        <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:600,color:scoreColor(val),lineHeight:1}}>{val}</span>
+                      </div>
+                    ))}
                   </div>
                   <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,whiteSpace:"nowrap"}}>{relativeTime(r.ts)}</span>
                   <button onClick={()=>loadReport(r)} style={{...btnBase,background:C.surface,color:C.textLabel}}>LOAD</button>
