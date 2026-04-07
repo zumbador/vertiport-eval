@@ -29,25 +29,25 @@ const priorityIndex = (site, demand) => Math.round(site * 0.60 + demand * 0.40);
 // ── Demand criteria config — drives display, PDF, and prompt ──
 const DEMAND_CRITERIA = {
   passenger: [
-    { key:"employment",       label:"Employment Density",          wt:"30%", icon:"🏢" },
-    { key:"destinations",     label:"Destinations & Attractions",  wt:"25%", icon:"📍" },
-    { key:"medical",          label:"Medical & Institutional",     wt:"20%", icon:"🏥" },
-    { key:"cargo",            label:"Cargo & Logistics",           wt:"15%", icon:"📦" },
-    { key:"transit_gap",      label:"Transit Gap",                 wt:"10%", icon:"🚌" },
+    { key:"employment",       label:"Employment Density",          icon:"🏢" },
+    { key:"destinations",     label:"Destinations & Attractions",  icon:"📍" },
+    { key:"medical",          label:"Medical & Institutional",     icon:"🏥" },
+    { key:"cargo",            label:"Cargo & Logistics",           icon:"📦" },
+    { key:"transit_gap",      label:"Transit Gap",                 icon:"🚌" },
   ],
   cargo: [
-    { key:"logistics_hub",    label:"Logistics Infrastructure",    wt:"30%", icon:"🏭" },
-    { key:"last_mile",        label:"Last-Mile Demand",            wt:"25%", icon:"📦" },
-    { key:"cargo_network",    label:"Cargo Network Value",         wt:"20%", icon:"✈" },
-    { key:"priority_freight", label:"Priority Freight",            wt:"15%", icon:"⚡" },
-    { key:"ground_access",    label:"Ground Access",               wt:"10%", icon:"🚛" },
+    { key:"logistics_hub",    label:"Logistics Infrastructure",    icon:"🏭" },
+    { key:"last_mile",        label:"Last-Mile Demand",            icon:"📦" },
+    { key:"cargo_network",    label:"Cargo Network Value",         icon:"✈" },
+    { key:"priority_freight", label:"Priority Freight",            icon:"⚡" },
+    { key:"ground_access",    label:"Ground Access",               icon:"🚛" },
   ],
   combo: [
-    { key:"logistics_hub",    label:"Logistics Infrastructure",    wt:"25%", icon:"🏭" },
-    { key:"employment",       label:"Employment & Destinations",   wt:"25%", icon:"🏢" },
-    { key:"cargo_network",    label:"Cargo Network",               wt:"20%", icon:"✈" },
-    { key:"priority_freight", label:"Priority / Medical Cargo",    wt:"15%", icon:"⚡" },
-    { key:"last_mile",        label:"Last-Mile + Transit",         wt:"15%", icon:"📦" },
+    { key:"logistics_hub",    label:"Logistics Infrastructure",    icon:"🏭" },
+    { key:"employment",       label:"Employment & Destinations",   icon:"🏢" },
+    { key:"cargo_network",    label:"Cargo Network",               icon:"✈" },
+    { key:"priority_freight", label:"Priority / Medical Cargo",    icon:"⚡" },
+    { key:"last_mile",        label:"Last-Mile + Transit",         icon:"📦" },
   ],
 };
 
@@ -158,7 +158,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   const scores = [
     { label:"SITE SCORE", sub:"infrastructure viability", val:siteScore },
     { label:"DEMAND SCORE", sub:"passenger + cargo draw", val:demandScore },
-    { label:"PRIORITY INDEX", sub:"cargo-weighted (60/40)", val:pi },
+    { label:"PRIORITY INDEX", sub:"site + demand composite", val:pi },
   ];
 
   scores.forEach((s, i) => {
@@ -239,12 +239,12 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   y = sectionHeader("SITE SCORE — INFRASTRUCTURE CRITERIA", y);
 
   const siteCriteria = [
-    { label:"Parcel Size & Contours", wt:"25%", score:results.site?.parcel?.score, notes:results.site?.parcel?.notes, detail:`${results.site?.parcel?.acreage_estimate ? `~${results.site.parcel.acreage_estimate} ac · ` : ""}${results.site?.parcel?.land_type||""}` },
-    { label:"FAA Airspace",           wt:"25%", score:results.site?.airspace?.score, notes:results.site?.airspace?.notes, detail:`${results.site?.airspace?.status||""} · ${results.site?.airspace?.nearest_airport||""}` },
-    { label:"Power Grid & DER",       wt:"20%", score:results.eia?.score??null, notes:results.eia?.notes||"EIA API key not set", detail:results.eia ? `${results.eia.details?.["Grid"]||""} · ${results.eia.details?.["TX sales"]||""}` : "Pending activation" },
-    { label:"Zoning Compliance",      wt:"15%", score:results.site?.zoning?.score, notes:results.site?.zoning?.notes, detail:`${results.site?.zoning?.compliance||""} · ${results.site?.zoning?.land_use||""}` },
-    { label:"Soil Stability & Flood", wt:"10%", score:results.site?.soil?.score, notes:results.site?.soil?.notes, detail:`${results.site?.soil?.flood_zone||""} · ${results.site?.soil?.slope_estimate||""}` },
-    { label:"Community DER Support",  wt:"5%",  score:results.nrel?.score??null, notes:results.nrel?.notes||"NREL API key not set", detail:results.nrel ? `${results.nrel.details?.["Utility"]||""} · GHI ${results.nrel.details?.["Solar GHI"]||"N/A"} · ${results.nrel.details?.["Comm. rate"]||""} · ${results.nrel.details?.["Net meter"]||""}` : "Pending activation" },
+    { label:"Parcel Size & Contours", score:results.site?.parcel?.score, notes:results.site?.parcel?.notes, detail:`${results.site?.parcel?.acreage_estimate ? `~${results.site.parcel.acreage_estimate} ac · ` : ""}${results.site?.parcel?.land_type||""}` },
+    { label:"FAA Airspace",           score:results.site?.airspace?.score, notes:results.site?.airspace?.notes, detail:`${results.site?.airspace?.status||""} · ${results.site?.airspace?.nearest_airport||""}` },
+    { label:"Power Grid & DER",       score:results.eia?.score??null, notes:results.eia?.notes||"EIA API key not set", detail:results.eia ? `${results.eia.details?.["Grid"]||""} · ${results.eia.details?.["TX sales"]||""}` : "Pending activation" },
+    { label:"Zoning Compliance",      score:results.site?.zoning?.score, notes:results.site?.zoning?.notes, detail:`${results.site?.zoning?.compliance||""} · ${results.site?.zoning?.land_use||""}` },
+    { label:"Soil Stability & Flood", score:results.site?.soil?.score, notes:results.site?.soil?.notes, detail:`${results.site?.soil?.flood_zone||""} · ${results.site?.soil?.slope_estimate||""}` },
+    { label:"Community DER Support",  score:results.nrel?.score??null, notes:results.nrel?.notes||"NREL API key not set", detail:results.nrel ? `${results.nrel.details?.["Utility"]||""} · GHI ${results.nrel.details?.["Solar GHI"]||"N/A"} · ${results.nrel.details?.["Comm. rate"]||""} · ${results.nrel.details?.["Net meter"]||""}` : "Pending activation" },
   ];
 
   siteCriteria.forEach((cr) => {
@@ -258,10 +258,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
     doc.rect(col, y, 2, rowH, "F");
     setTxt("#444444");
     doc.setFont("helvetica","bold"); doc.setFontSize(7);
-    doc.text(cr.label, col + 5, y + 5);
-    setTxt("#999999");
-    doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
-    doc.text(`WT ${cr.wt}`, col + 5, y + 10);
+    doc.text(cr.label, col + 5, y + 7);
     // score
     setTxt(cCol);
     doc.setFont("helvetica","bold"); doc.setFontSize(14);
@@ -294,7 +291,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   y = sectionHeader(DEMAND_HEADER[em] || "DEMAND SCORE — WHY FLY HERE?", y);
 
   const demandCriteria = (DEMAND_CRITERIA[em] || DEMAND_CRITERIA.passenger).map(cr => ({
-    label: cr.label, wt: cr.wt,
+    label: cr.label,
     score: results.demand?.[cr.key]?.score ?? null,
     notes: results.demand?.[cr.key]?.notes,
   }));
@@ -310,10 +307,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
     doc.rect(col, y, 2, rowH, "F");
     setTxt("#444444");
     doc.setFont("helvetica","bold"); doc.setFontSize(7);
-    doc.text(cr.label, col + 5, y + 5);
-    setTxt("#999999");
-    doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
-    doc.text(`WT ${cr.wt}`, col + 5, y + 10);
+    doc.text(cr.label, col + 5, y + 7);
     setTxt(cCol);
     doc.setFont("helvetica","bold"); doc.setFontSize(14);
     doc.text(String(sc), col + 60, y + 9);
@@ -1011,7 +1005,7 @@ async function fetchNRELDERScore(lat, lon) {
       "Net meter":  nmStr,
     },
     notes,
-    _meta: { utilityLive, solarLive, solarPts, utilityPts, ratePts, nmPts },
+    _live: { utilityLive, solarLive },
   };
 }
 
@@ -1487,7 +1481,7 @@ function ScorePill({ label, score, sub }) {
   );
 }
 
-function SiteCard({ label, icon, score, weight, details, pending, notes }) {
+function SiteCard({ label, icon, score, details, pending, notes }) {
   const color = pending ? C.pending : scoreColor(score);
   return (
     <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 16px",position:"relative",overflow:"hidden"}}>
@@ -1495,7 +1489,6 @@ function SiteCard({ label, icon, score, weight, details, pending, notes }) {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
         <div>
           <div style={{color:C.textLabel,fontSize:9,fontFamily:"'IBM Plex Mono',monospace",letterSpacing:"0.12em",marginBottom:3}}>{icon} {label.toUpperCase()}</div>
-          <div style={{color:C.textLabel,fontSize:9,fontFamily:"'IBM Plex Mono',monospace"}}>WT {Math.round(weight*100)}%</div>
         </div>
         {pending?<span style={{color:C.pending,fontSize:9,fontFamily:"'IBM Plex Mono',monospace",border:`1px solid ${C.pending}`,padding:"2px 7px",borderRadius:3}}>PENDING</span>
           :<span style={{color,fontSize:26,fontFamily:"'Space Mono',monospace",fontWeight:700,lineHeight:1}}>{score}</span>}
@@ -2094,7 +2087,7 @@ function LandingPage({ onStart }) {
   const feat = [
     { icon: "▣", title: "Site Score", body: "Parcel size, FAA airspace class, zoning, flood risk, and grid capacity — scored against FAA and NREL vertiport standards." },
     { icon: "◎", title: "Demand Score", body: "Employment density, medical facilities, cargo infrastructure, and transit gaps — calibrated for eVTOL cargo-first operations." },
-    { icon: "◈", title: "Priority Index", body: "Site × 0.60 + Demand × 0.40. Quadrant placement tells you exactly where to focus your due diligence." },
+    { icon: "◈", title: "Priority Index", body: "Composite index combining site infrastructure and demand potential. Quadrant placement tells you exactly where to focus your due diligence." },
   ];
 
   return (
@@ -2310,9 +2303,9 @@ export default function App() {
       console.log("Claude API:    temperature=0 · model=claude-sonnet-4-6 · 3 parallel calls (pax/cargo/combo)");
       console.log("FAA airspace:  static dataset ·", airspaceResult.status, "· score", airspaceResult.score, "·", airspaceResult.nearest_airport);
       console.log("EIA power:",    eia?._live ? `live · score ${eia.score}` : `FALLBACK (baseline) · score ${eia?.score??0}`);
-      const nrelMeta = nrel?._meta || {};
-      console.log("NREL utility:", nrelMeta.utilityLive ? `live · ${nrel.score} pts` : "FALLBACK (TX baseline)");
-      console.log("NREL solar:",   nrelMeta.solarLive   ? `live · GHI from API`      : "FALLBACK (TX baseline)");
+      const nrelLive = nrel?._live || {};
+      console.log("NREL utility:", nrelLive.utilityLive ? `live · ${nrel.score} pts` : "FALLBACK (TX baseline)");
+      console.log("NREL solar:",   nrelLive.solarLive   ? `live · GHI from API`      : "FALLBACK (TX baseline)");
       console.log("HCAD parcel:", hcad ? `live · ${hcad.acreage_estimate} ac · score ${hcad.score}` : `FALLBACK (LLM estimate) · ${hcadS.reason?.message||"no coverage"}`);
       if (fema) {
         const fs = fema._source || {};
@@ -2326,7 +2319,14 @@ export default function App() {
       console.groupEnd();
 
       // ── Build per-mode results ─────────────────────────────
-      const sharedBase={geocode:base.geocode,site:siteData,flags,eia,nrel,hcad,fema,osm,heliport:heli,flyingDays:flyData};
+      // Strip internal audit fields before storing in state / localStorage
+      const strip=(obj,keys)=>{ if(!obj)return obj; const r={...obj}; keys.forEach(k=>delete r[k]); return r; };
+      const eiaClean  = strip(eia,  ["_live"]);
+      const nrelClean = strip(nrel, ["_live"]);
+      const hcadClean = strip(hcad, ["_source","_account"]);
+      const femaClean = strip(fema, ["_source"]);
+      const osmClean  = strip(osm,  ["_source","_raw"]);
+      const sharedBase={geocode:base.geocode,site:siteData,flags,eia:eiaClean,nrel:nrelClean,hcad:hcadClean,fema:femaClean,osm:osmClean,heliport:heli,flyingDays:flyData};
       const buildMode=(modeClaudeData,demandObj,em)=>{
         const ctx={...sharedBase,demand:demandObj,evalMode:em};
         const reg=buildRegulatoryChecklist(ctx,em);
@@ -2559,7 +2559,7 @@ export default function App() {
                   <div style={{display:"flex",gap:10,marginBottom:14}}>
                     <ScorePill label="SITE SCORE" score={siteScore} sub="infrastructure viability"/>
                     <ScorePill label="DEMAND SCORE" score={demandScore} sub={demandSubLabel}/>
-                    <ScorePill label="PRIORITY INDEX" score={pi} sub="cargo-weighted 60/40"/>
+                    <ScorePill label="PRIORITY INDEX" score={pi} sub="composite score"/>
                   </div>
 
                   <div style={{padding:"10px 14px",background:`${q.color}0e`,border:`1px solid ${q.color}33`,borderRadius:6,marginBottom:12}}>
@@ -2587,12 +2587,12 @@ export default function App() {
               {/* Site criteria */}
               <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>SITE SCORE — INFRASTRUCTURE CRITERIA</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:20}}>
-                <SiteCard label="Parcel" icon="▣" score={results.site?.parcel?.score} weight={0.25} notes={results.site?.parcel?.notes} details={{"Acreage":results.site?.parcel?.acreage_estimate?`~${results.site.parcel.acreage_estimate} ac`:null,"Type":results.site?.parcel?.land_type,"NREL min":"1.5 ac"}}/>
-                <SiteCard label="FAA Airspace" icon="✈" score={results.site?.airspace?.score} weight={0.25} notes={results.site?.airspace?.notes} details={{"Class":results.site?.airspace?.status,"Airport":results.site?.airspace?.nearest_airport,"LAANC":results.site?.airspace?.laanc_required?"Required":"Not required"}}/>
-                <SiteCard label="Power Grid & DER" icon="⚡" score={results.eia?.score??null} weight={0.20} pending={!results.eia} notes={results.eia?.notes} details={results.eia?.details}/>
-                <SiteCard label="Zoning" icon="◈" score={results.site?.zoning?.score} weight={0.15} notes={results.site?.zoning?.notes} details={{"Compliance":results.site?.zoning?.compliance,"Use":results.site?.zoning?.land_use}}/>
-                <SiteCard label="Soil & Flood" icon="⬡" score={results.site?.soil?.score} weight={0.10} notes={results.site?.soil?.notes} details={{"Flood":results.site?.soil?.flood_zone,"Slope":results.site?.soil?.slope_estimate,"Elev":results.site?.soil?.elevation_ft?`${results.site.soil.elevation_ft} ft`:null}}/>
-                <SiteCard label="DER Support" icon="◉" score={results.nrel?.score??null} weight={0.05} pending={!results.nrel} notes={results.nrel?.notes} details={results.nrel?.details}/>
+                <SiteCard label="Parcel" icon="▣" score={results.site?.parcel?.score} notes={results.site?.parcel?.notes} details={{"Acreage":results.site?.parcel?.acreage_estimate?`~${results.site.parcel.acreage_estimate} ac`:null,"Type":results.site?.parcel?.land_type}}/>
+                <SiteCard label="FAA Airspace" icon="✈" score={results.site?.airspace?.score} notes={results.site?.airspace?.notes} details={{"Class":results.site?.airspace?.status,"Airport":results.site?.airspace?.nearest_airport,"LAANC":results.site?.airspace?.laanc_required?"Required":"Not required"}}/>
+                <SiteCard label="Power Grid & DER" icon="⚡" score={results.eia?.score??null} pending={!results.eia} notes={results.eia?.notes} details={results.eia?.details}/>
+                <SiteCard label="Zoning" icon="◈" score={results.site?.zoning?.score} notes={results.site?.zoning?.notes} details={{"Compliance":results.site?.zoning?.compliance,"Use":results.site?.zoning?.land_use}}/>
+                <SiteCard label="Soil & Flood" icon="⬡" score={results.site?.soil?.score} notes={results.site?.soil?.notes} details={{"Flood":results.site?.soil?.flood_zone,"Slope":results.site?.soil?.slope_estimate,"Elev":results.site?.soil?.elevation_ft?`${results.site.soil.elevation_ft} ft`:null}}/>
+                <SiteCard label="DER Support" icon="◉" score={results.nrel?.score??null} pending={!results.nrel} notes={results.nrel?.notes} details={results.nrel?.details}/>
               </div>
 
               {/* Demand criteria */}
