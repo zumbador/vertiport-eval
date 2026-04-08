@@ -186,9 +186,9 @@ Done:
   LOWALTITUDEECONOMY.AERO branding in PDF header right side [Mar 30]
 
 Next up (do in Claude Code):
-- Nationwide address support — expand txAirspace.js to all US Class B/C/D (~500 airports,
-  static FAA NASR extract), expand heliport layer to national NASR dataset, expand
-  flyingDays.js to national NOAA stations, update UI copy (remove "Texas Beta" references)
+- Nationwide address support ✅ (Apr 8) — usAirspace.js (39 Class B + ~85 Class C + key Class D),
+  usHeliports.js (8,211 national from OurAirports), flyingDays.js (80+ national NOAA stations),
+  all TX-only UI copy removed, LLM prompt / parseCoords / EIA / NREL / regulatory checklist generalized.
 - Multi-site / network view (quadrant chart supports multiple points)
 - Rate limiting for beta launch (currently disabled for dev)
 - Beta landing page and email signup (HubSpot integration — free tier creates contact)
