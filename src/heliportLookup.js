@@ -1,4 +1,4 @@
-import { TX_HELIPORTS } from './txHeliports.js';
+import { US_HELIPORTS } from './usHeliports.js';
 
 // Haversine distance in meters
 function distanceM(lat1, lon1, lat2, lon2) {
@@ -26,7 +26,7 @@ export function findNearestHeliport(lat, lon, radiusM = 500) {
   let best = null;
   let bestDist = Infinity;
 
-  for (const [hLat, hLon, name, type] of TX_HELIPORTS) {
+  for (const [hLat, hLon, name, type] of US_HELIPORTS) {
     const d = distanceM(lat, lon, hLat, hLon);
     if (d <= radiusM && d < bestDist) {
       bestDist = d;

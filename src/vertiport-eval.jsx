@@ -2,7 +2,7 @@ import { useState } from "react";
 import aamLogo from './assets/aam_logo.png';
 import { jsPDF } from "jspdf";
 import { findNearestHeliport } from './heliportLookup.js';
-import { TX_AIRSPACE } from './txAirspace.js';
+import { US_AIRSPACE } from './usAirspace.js';
 import { estimateFlyingDays } from './flyingDays.js';
 import { buildRegulatoryChecklist, CATEGORIES } from './regulatoryChecklist.js';
 import { buildInvestmentSummary } from './investmentViability.js';
@@ -146,7 +146,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   setTxt("#daeaf6");
   doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
   doc.text(`Generated: ${new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"})}`, colR, 19, {align:"right"});
-  doc.text("Phase 1 — Texas  ·  Two-Axis Scoring Model", colR, 25, {align:"right"});
+  doc.text("Nationwide  ·  Two-Axis Scoring Model", colR, 25, {align:"right"});
 
   // ── Site name ──
   y = 46;
@@ -251,7 +251,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   const siteCriteria = [
     { label:"Parcel Size & Contours", score:results.site?.parcel?.score, notes:results.site?.parcel?.notes, detail:`${results.site?.parcel?.acreage_estimate ? `~${results.site.parcel.acreage_estimate} ac · ` : ""}${results.site?.parcel?.land_type||""}` },
     { label:"FAA Airspace",           score:results.site?.airspace?.score, notes:results.site?.airspace?.notes, detail:`${results.site?.airspace?.status||""} · ${results.site?.airspace?.nearest_airport||""}` },
-    { label:"Power Grid & DER",       score:results.eia?.score??null, notes:results.eia?.notes||"EIA API key not set", detail:results.eia ? `${results.eia.details?.["Grid"]||""} · ${results.eia.details?.["TX sales"]||""}` : "Pending activation" },
+    { label:"Power Grid & DER",       score:results.eia?.score??null, notes:results.eia?.notes||"EIA API key not set", detail:results.eia ? `${results.eia.details?.["Grid"]||""} · ${results.eia.details?.["US sales"]||""}` : "Pending activation" },
     { label:"Zoning Compliance",      score:results.site?.zoning?.score, notes:results.site?.zoning?.notes, detail:`${results.site?.zoning?.compliance||""} · ${results.site?.zoning?.land_use||""}` },
     { label:"Soil Stability & Flood", score:results.site?.soil?.score, notes:results.site?.soil?.notes, detail:`${results.site?.soil?.flood_zone||""} · ${results.site?.soil?.slope_estimate||""}` },
     { label:"Community DER Support",  score:results.nrel?.score??null, notes:results.nrel?.notes||"NREL API key not set", detail:results.nrel ? `${results.nrel.details?.["Utility"]||""} · GHI ${results.nrel.details?.["Solar GHI"]||"N/A"} · ${results.nrel.details?.["Comm. rate"]||""} · ${results.nrel.details?.["Net meter"]||""}` : "Pending activation" },
@@ -296,7 +296,6 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   });
 
   // ── Demand criteria ──
-  const em = results.evalMode || "passenger";
   y += 3;
   y = sectionHeader(DEMAND_HEADER[em] || "DEMAND SCORE — WHY FLY HERE?", y);
 
@@ -465,7 +464,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
       if (!grouped[item.category]) grouped[item.category] = [];
       grouped[item.category].push(item);
     }
-    const catNames = { FAA:"FAA / Federal Aviation", ENV:"Environmental", STATE:"State of Texas", LOCAL:"Local / Municipal", UTIL:"Utility & Infrastructure", OPS:"Operational Readiness" };
+    const catNames = { FAA:"FAA / Federal Aviation", ENV:"Environmental", STATE:"State / Regional", LOCAL:"Local / Municipal", UTIL:"Utility & Infrastructure", OPS:"Operational Readiness" };
 
     for (const [cat, items] of Object.entries(grouped)) {
       // Check page space
@@ -790,33 +789,33 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
 // ── Prompt builder ────────────────────────────────────────────
 function buildPrompt(input, inputMode, evalMode = "passenger") {
   const locationDesc = inputMode === "coords"
-    ? `GPS Coordinates: ${input.lat}, ${input.lon} (Texas)${input.label ? ` — Site: ${input.label}` : ""}`
+    ? `GPS Coordinates: ${input.lat}, ${input.lon}${input.label ? ` — Site: ${input.label}` : ""}`
     : `Address: "${input.address}"`;
   const coordNote = inputMode === "coords"
     ? `IMPORTANT: Evaluate what is actually at these coordinates. For parks or open land score parcel based on actual site area not adjacent residential lot.` : ``;
 
   const siteCriteria = `SITE CRITERIA:
 PARCEL (25%): >10ac=90-100, 5-10=80-90, 2-5=60-75, 0.5-2=25-45, <0.5=5-20. Flag <1.5ac.
-AIRSPACE (25%): Rural no airport=90-100. Humble/Will Clayton Class G IAH 18km=72-82. Suburban GA 10-20km=70-85. Heliport nearby=50-65. SW Houston near HOU 5-6km=32-42. Galleria Class B=18-28. IAH Class B=10-22.
+AIRSPACE (25%): Rural Class G >40nm=90-100. Suburban Class G 20-40nm=83-90. Suburban Class G 10-20nm=72-82. Near Class D or Class C outer=65-72. Class C SFC or Class B outer (3000ft+ floor)=55-65. Class B outer (2000ft floor)=40-50. Class B SFC=10-22.
 ZONING (15%): Industrial/logistics=88-100. Business park=65-80. Public park/greenspace=55-70. Mixed commercial=45-62. Galleria/luxury retail=22-35. Residential=8-22.
-SOIL (10%): Zone X=85-98. Stormwater detention=35-50. Zone AE=18-35. Zone AE at active seaport/port terminal (Galveston, Texas City)=30-42 — coastal port siting, elevation mitigation expected. Zone VE (coastal wave)=10-20. Humble Zone X=82-92.
+SOIL (10%): Zone X=85-98. Stormwater detention=35-50. Zone AE=18-35. Zone AE at active seaport/port terminal=30-42 — coastal port siting, elevation mitigation expected. Zone VE (coastal wave action)=10-20.
 SITE_COMPOSITE = parcel*0.25 + airspace*0.25 + zoning*0.15 + soil*0.10. Max=75.`;
 
   const demandSections = {
     passenger: `DEMAND CRITERIA:
 EMPLOYMENT (30%): CBD/Energy Corridor/major hub=80-100. Business park=55-75. Mixed=30-50. Residential/park=5-25.
-DESTINATIONS (25%): Stadium/arena/convention=85-100. Major international/hub airport (IAH/HOU/DAL/DFW)=80-95. Major cruise homeport terminal (Galveston, Port of Houston)=82-95. Regional/commercial airport=65-80. General aviation airport=45-62. Outdoor venue/major park/museum=55-75. Willow Waterhole with music venue=58-70. Industrial=5-20.
-MEDICAL (20%): Texas Medical Center=90-100. Regional hospital=60-80. Clinic=25-45. None=5-20.
+DESTINATIONS (25%): Stadium/arena/convention center=85-100. Major international/hub airport=80-95. Major cruise homeport or ferry terminal=82-95. Regional commercial airport=65-80. General aviation airport=45-62. Outdoor venue/major park/museum=55-75. Industrial=5-20.
+MEDICAL (20%): Tier 1 academic medical center / hospital cluster=90-100. Regional hospital=60-80. Clinic=25-45. None=5-20.
 CARGO (15%): Port/major hub=85-100. Industrial corridor=60-80. Humble/Will Clayton logistics=75-90. Residential/park=5-20.
 TRANSIT_GAP (10%): Remote/car-dependent=70-90. Suburban limited transit=50-70. Near Metro rail=10-30.
 DEMAND_COMPOSITE = employment*0.30 + destinations*0.25 + medical*0.20 + cargo*0.15 + transit_gap*0.10.`,
 
     cargo: `DEMAND CRITERIA (CARGO OPERATIONS):
-LOGISTICS_HUB (30%): Major seaport/container terminal or cruise homeport (Port of Galveston, Port Houston, Texas City)=90-100. Major fulfillment/distribution center adjacent=85-95. Industrial/logistics park=65-82. Near freight corridor=45-65. Commercial=25-45. Residential=5-20.
+LOGISTICS_HUB (30%): Major seaport/container terminal or cruise homeport=90-100. Major fulfillment/distribution center adjacent=85-95. Industrial/logistics park=65-82. Near freight corridor=45-65. Commercial=25-45. Residential=5-20.
 LAST_MILE (25%): NOTE — for seaport/maritime terminal locations, score on container throughput and intermodal volume, NOT population density. Major container/ro-ro port=82-95. Active intermodal terminal=65-80. Dense urban delivery demand (pop >50K in 5nm)=80-100. Suburban e-commerce density=55-75. Mixed delivery zone=35-55. Low density=10-30.
 CARGO_NETWORK (20%): On-port or adjacent to major seaport/container terminal=90-100. Adjacent to major freight airport=85-95. Near intermodal terminal=65-80. Near major highway interchange=50-65. Suburban access=35-50. No freight infra=10-25.
 PRIORITY_FREIGHT (15%): International container/ro-ro terminal=70-85. On medical/pharma supply route (TMC area)=80-100. Cold chain/perishables hub=65-80. High-value cargo corridor=50-65. General freight=25-45. None=5-20.
-GROUND_ACCESS (10%): Direct truck dock + highway ramp=80-100. Good road network=55-75. Barrier island/causeway-only access (Galveston)=40-55. Limited heavy vehicle access=30-50. Poor=5-25.
+GROUND_ACCESS (10%): Direct truck dock + highway ramp=80-100. Good road network=55-75. Barrier island/causeway-only access=40-55. Limited heavy vehicle access=30-50. Poor=5-25.
 DEMAND_COMPOSITE = logistics_hub*0.30 + last_mile*0.25 + cargo_network*0.20 + priority_freight*0.15 + ground_access*0.10.`,
 
     combo: `DEMAND CRITERIA (CARGO + PASSENGER COMBO):
@@ -829,9 +828,9 @@ DEMAND_COMPOSITE = logistics_hub*0.25 + employment*0.25 + cargo_network*0.20 + p
   };
 
   const benchmarks = {
-    passenger: `BENCHMARKS: Will Clayton: site 68-82, demand 45-60. Galleria: site 28-42, demand 62-78. TMC: site 35-55, demand 85-95. IAH airport area: site 35-55, demand 78-90. Galveston cruise terminal: site 45-62, demand 70-85. Residential: site 15-28, demand 15-30.`,
-    cargo:     `BENCHMARKS (cargo): Will Clayton logistics park: site 68-82, demand 70-85. IAH cargo area: site 55-70, demand 75-90. Port Houston/Ship Channel: site 55-72, demand 80-92. Port of Galveston terminal: site 45-62, demand 72-85. Texas City terminal: site 48-65, demand 70-84. TMC (medical supply): site 35-55, demand 72-85.`,
-    combo:     `BENCHMARKS (combo): Will Clayton: site 68-82, demand 60-75. Galleria area: site 28-42, demand 52-68. TMC: site 35-55, demand 78-90. Galveston cruise/cargo terminal: site 45-62, demand 68-82.`,
+    passenger: `BENCHMARKS: Large logistics/industrial park: site 68-82, demand 45-60. Dense urban retail/office: site 28-42, demand 62-78. Major medical center: site 35-55, demand 85-95. Major hub airport area: site 35-55, demand 78-90. Cruise/port terminal: site 45-62, demand 70-85. Residential: site 15-28, demand 15-30.`,
+    cargo:     `BENCHMARKS (cargo): Logistics/industrial park near freight corridor: site 68-82, demand 70-85. Major air cargo airport area: site 55-70, demand 75-90. Major seaport/container terminal: site 55-72, demand 80-92. Cruise/ferry terminal: site 45-62, demand 72-85. Medical supply corridor (near major hospital cluster): site 35-55, demand 72-85.`,
+    combo:     `BENCHMARKS (combo): Industrial/logistics park: site 68-82, demand 60-75. Dense urban mixed use: site 28-42, demand 52-68. Major medical complex: site 35-55, demand 78-90. Seaport/cruise terminal: site 45-62, demand 68-82.`,
   };
 
   const demandSchemas = {
@@ -857,7 +856,7 @@ ${benchmarks[em]}
 Return ONLY valid JSON, keep ALL string values under 80 chars:
 {"geocode":{"matched":"location name","lat":29.76,"lon":-95.37,"valid":true},"site":{"composite":0,"parcel":{"score":0,"acreage_estimate":0.0,"land_type":"type","notes":"short note","flags":["flag"]},"airspace":{"score":0,"status":"class","laanc_required":false,"nearest_airport":"name dist","notes":"short note","flags":[]},"zoning":{"score":0,"compliance":"Good","land_use":"type","notes":"short note","flags":[]},"soil":{"score":0,"flood_zone":"Zone X","slope_estimate":"<1%","elevation_ft":50,"notes":"short note","flags":[]}},${demandSchemas[em]},"summary":"2 sentences max","development_thesis":"one sentence best use case","top_strengths":["strength 1","strength 2"],"top_concerns":["concern 1"]}
 
-If outside Texas set geocode.valid=false and all scores to 0.`;
+Evaluate any US address or coordinates. If the location is outside the United States set geocode.valid=false and all scores to 0.`;
 }
 
 async function analyzeWithClaude(input, inputMode, evalMode = "passenger") {
@@ -914,7 +913,6 @@ async function fetchEIAPowerScore(lat, lon, zoningScore) {
     p.append("api_key", apiKey);
     p.append("frequency", "annual");
     p.append("data[]", "sales");
-    p.append("facets[stateid][]", "TX");
     p.append("facets[sectorid][]", "ALL");
     p.append("sort[0][column]", "period");
     p.append("sort[0][direction]", "desc");
@@ -927,10 +925,10 @@ async function fetchEIAPowerScore(lat, lon, zoningScore) {
     }
   } catch(e) { console.warn("EIA fetch:", e?.message); }
   const score = Math.min(100, Math.max(0, Math.round(68 + zoningBonus)));
-  const notes = score >= 75 ? "ERCOT grid + strong load base. Three-phase access likely near commercial zones."
-    : score >= 50 ? "ERCOT grid adequate. Verify transformer capacity for 1 MW+ peak DC loads."
+  const notes = score >= 75 ? "Grid capacity strong. Three-phase access likely near commercial zones."
+    : score >= 50 ? "Grid adequate. Verify transformer capacity for 1 MW+ peak DC loads."
     : "Grid access uncertain for high-power charging. Engineering study required.";
-  return { score, details: { "Grid":"ERCOT (TX deregulated)", "TX sales":eiaSales, "Year":eiaLive ? eiaYear : "EIA v2 unavailable — baseline used" }, notes, _live: eiaLive };
+  return { score, details: { "Grid":"US grid (EIA)", "US sales":eiaSales, "Year":eiaLive ? eiaYear : "EIA v2 unavailable — baseline used" }, notes, _live: eiaLive };
 }
 
 // ── NREL Community DER Support score ─────────────────────────
@@ -961,26 +959,22 @@ async function fetchNRELDERScore(lat, lon) {
   const commercialRate = typeof uOut?.commercial === "number" ? uOut.commercial : null; // $/kWh
   const netMetering  = uOut?.net_metering  ?? null; // boolean or null if unknown
   const u = utilityName.toLowerCase();
-  const isMajorTXUtil = u.includes("centerpoint") || u.includes("oncor") ||
-                        u.includes("tnmp") || u.includes("aep texas") ||
-                        u.includes("aep central") || u.includes("aep north") ||
-                        u.includes("texas new mexico");
+  const isKnownUtil = u.length > 3 && !u.includes("unknown");
 
   // ── Solar data ────────────────────────────────────────────────
   const ghi = sOut?.avg_ghi?.annual || 0;  // kWh/m²/day
   const dni = sOut?.avg_dni?.annual || 0;  // direct normal irradiance
 
   // ── Score: Solar resource (0–30) ─────────────────────────────
-  const solarPts = ghi >= 5.5 ? 30 : ghi >= 5.0 ? 22 : ghi >= 4.5 ? 15 : ghi >= 4.0 ? 8 : solarLive ? 4 : 12; // 12 = TX baseline if API unavailable
+  const solarPts = ghi >= 5.5 ? 30 : ghi >= 5.0 ? 22 : ghi >= 4.5 ? 15 : ghi >= 4.0 ? 8 : solarLive ? 4 : 12; // 12 = national baseline if API unavailable
 
   // ── Score: Utility type (0–30) ────────────────────────────────
-  const utilityPts = !utilityLive ? 20  // TX ERCOT baseline if API unavailable
-    : isMajorTXUtil ? 30
-    : u.includes("unknown") ? 15
-    : 20; // other known utility
+  const utilityPts = !utilityLive ? 20  // national baseline if API unavailable
+    : isKnownUtil ? 25
+    : 15; // unknown utility
 
   // ── Score: Commercial rate (0–25) — lower = better for charging economics ──
-  const ratePts = commercialRate === null ? 12  // TX average baseline
+  const ratePts = commercialRate === null ? 12  // national average baseline
     : commercialRate < 0.07 ? 25
     : commercialRate < 0.09 ? 18
     : commercialRate < 0.11 ? 12
@@ -997,13 +991,13 @@ async function fetchNRELDERScore(lat, lon) {
   const nmStr     = netMetering === true ? "Net metering: yes" : netMetering === false ? "Net metering: no" : "Net metering: unknown";
   const ghiStr    = ghi   ? `${ghi.toFixed(2)} kWh/m²/day` : "N/A";
   const dniStr    = dni   ? `${dni.toFixed(2)} kWh/m²/day` : "N/A";
-  const sourceTag = (!utilityLive && !solarLive) ? " (TX baseline — NREL unavailable)" : (!utilityLive || !solarLive) ? " (partial live data)" : "";
+  const sourceTag = (!utilityLive && !solarLive) ? " (baseline — NREL unavailable)" : (!utilityLive || !solarLive) ? " (partial live data)" : "";
 
   const notes = score >= 75
     ? `High solar resource, strong utility DER programs. ${rateStr}. ${nmStr}.`
     : score >= 55
     ? `Solid DER environment. ${rateStr}. ${nmStr}. Verify interconnection queue with ${utilityName}.`
-    : `Standard DER support${sourceTag}. TX deregulated market provides interconnection pathways. ${rateStr}.`;
+    : `Standard DER support${sourceTag}. Verify interconnection pathway with local utility. ${rateStr}.`;
 
   return {
     score,
@@ -1192,7 +1186,7 @@ async function fetchFEMAFloodScore(lat, lon) {
   return {
     score,
     flood_zone: zoneLabel,
-    slope_estimate: "< 2% (TX flat terrain)",
+    slope_estimate: "< 2% (estimated)",
     elevation_ft: elevFt !== null ? Math.round(elevFt) : null,
     notes,
     flags,
@@ -1337,14 +1331,14 @@ out tags;`;
   return { score, compliance, land_use, notes, flags, _source: "OSM/Overpass", _raw: rawType };
 }
 
-// ── FAA Airspace scoring (static TX_AIRSPACE data + Haversine) ─
+// ── FAA Airspace scoring (static US_AIRSPACE data + Haversine) ─
 // No live API — uses the same airport dataset as the map overlay.
 // Circular tier model is a simplification; real Class B has irregular legs.
 // Primary signal: whether the site is inside a SFC-floor tier.
 // For eVTOL ops (below ~1000ft AGL), outer tiers with elevated floors are
 // permissive at surface level but require authorization above the floor.
 //
-// Scoring calibrated against validated TX benchmarks:
+// Scoring calibrated against validated benchmarks:
 //   Class B SFC → 15  |  Class B outer (2000ft floor) → 45
 //   Class B outer (3000ft+) → 60  |  Class C SFC → 42  |  Class C outer → 65
 //   Class D → 65  |  Class G <10nm → 78  |  Class G 10-20nm → 83
@@ -1365,7 +1359,7 @@ function scoreAirspace(lat, lon) {
   let nearest  = null;  // closest airport regardless of airspace
   let nearestDist = Infinity;
 
-  for (const ap of TX_AIRSPACE) {
+  for (const ap of US_AIRSPACE) {
     const dist = distNM(lat, lon, ap.lat, ap.lon);
     if (dist < nearestDist) { nearestDist = dist; nearest = ap; }
 
@@ -1683,7 +1677,7 @@ function FlyingDaysPanel({ data }) {
 
         {/* Data source note */}
         <div style={{marginTop:12,fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim}}>
-          Source: NOAA 30-year climate normals (1991-2020) · IDW interpolation from {">"}15 TX reference stations · eVTOL operational thresholds
+          Source: NOAA 30-year climate normals (1991-2020) · IDW interpolation from 80+ US reference stations · eVTOL operational thresholds
         </div>
       </div>
     </div>
@@ -1974,7 +1968,7 @@ function InvestmentPanel({ data }) {
 
         {/* Disclaimer */}
         <div style={{marginTop:12,fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim}}>
-          Projections are model estimates based on evaluation data, industry benchmarks (NEXA, McKinsey), and 2025-2026 Texas cost indices. Not financial advice. Independent feasibility study required before investment decisions. NPV at 8% discount rate.
+          Projections are model estimates based on evaluation data, industry benchmarks (NEXA, McKinsey), and 2025-2026 US construction cost indices. Not financial advice. Independent feasibility study required before investment decisions. NPV at 8% discount rate.
         </div>
       </div>
     </div>
@@ -2001,10 +1995,10 @@ function RangeVal({ label, value, highlight }) {
   );
 }
 
-function parseCoords(lat,lon){const la=parseFloat(lat),lo=parseFloat(lon);if(isNaN(la)||isNaN(lo))return null;if(la<25||la>37||lo<-107||lo>-93)return null;return{lat:la,lon:lo};}
+function parseCoords(lat,lon){const la=parseFloat(lat),lo=parseFloat(lon);if(isNaN(la)||isNaN(lo))return null;if(la<18||la>72||lo<-180||lo>-65)return null;return{lat:la,lon:lo};}
 
-const ADDR_EXAMPLES=["8900 Will Clayton Pkwy, Humble TX","6900 N Loop E, Houston TX","1400 Post Oak Blvd, Houston TX"];
-const COORD_EXAMPLES=[{label:"Willow Waterhole",lat:"29.6620",lon:"-95.5197"},{label:"Texas Medical Center",lat:"29.7079",lon:"-95.4010"},{label:"Ship Channel",lat:"29.7355",lon:"-95.2307"}];
+const ADDR_EXAMPLES=["8900 Will Clayton Pkwy, Humble TX","1400 Post Oak Blvd, Houston TX","3900 N Causeway Blvd, Metairie LA","1600 E Grand Ave, El Segundo CA"];
+const COORD_EXAMPLES=[{label:"Texas Medical Center",lat:"29.7079",lon:"-95.4010"},{label:"O'Hare Cargo Area",lat:"41.9857",lon:"-87.9284"},{label:"Port of LA",lat:"33.7361",lon:"-118.2639"}];
 
 // ── Beta email gate ───────────────────────────────────────────
 const ROLES = [
@@ -2139,7 +2133,7 @@ function LandingPage({ onStart }) {
           EVALUATE A SITE — FREE
         </button>
         <div style={{ fontSize:12, color:C.textDim, marginTop:12 }}>
-          No credit card. Texas sites only during beta.
+          No credit card. Any US address. Free during beta.
         </div>
       </section>
 
@@ -2167,7 +2161,7 @@ function LandingPage({ onStart }) {
           BUSINESSAVIATION.AERO
         </span>
         <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:C.textDim }}>
-          FAA/NREL CALIBRATED · PHASE 1 TEXAS
+          FAA/NREL CALIBRATED · NATIONWIDE
         </span>
       </footer>
 
@@ -2213,7 +2207,7 @@ export default function App() {
       if(runMode==="coords"){
         const rawLat=override?override.lat:lat; const rawLon=override?override.lon:lon; const rawLabel=override?.label||siteLabel;
         const c=override?{lat:parseFloat(rawLat),lon:parseFloat(rawLon)}:parseCoords(rawLat,rawLon);
-        if(!c)throw new Error("Invalid coordinates. Texas is ~26-36°N, -94 to -107°W.");
+        if(!c)throw new Error("Invalid coordinates. US range: 18-72°N, 65-180°W.");
         input={lat:c.lat,lon:c.lon,label:rawLabel||`${c.lat}, ${c.lon}`};addL(`Coordinates: ${c.lat.toFixed(5)}°N, ${Math.abs(c.lon).toFixed(5)}°W`);
       }else{const addr=override?override.address:address.trim();input={address:addr};addL(`Geocoding: ${addr}`);}
 
@@ -2314,8 +2308,8 @@ export default function App() {
       console.log("FAA airspace:  static dataset ·", airspaceResult.status, "· score", airspaceResult.score, "·", airspaceResult.nearest_airport);
       console.log("EIA power:",    eia?._live ? `live · score ${eia.score}` : `FALLBACK (baseline) · score ${eia?.score??0}`);
       const nrelLive = nrel?._live || {};
-      console.log("NREL utility:", nrelLive.utilityLive ? `live · ${nrel.score} pts` : "FALLBACK (TX baseline)");
-      console.log("NREL solar:",   nrelLive.solarLive   ? `live · GHI from API`      : "FALLBACK (TX baseline)");
+      console.log("NREL utility:", nrelLive.utilityLive ? `live · ${nrel.score} pts` : "FALLBACK (national baseline)");
+      console.log("NREL solar:",   nrelLive.solarLive   ? `live · GHI from API`      : "FALLBACK (national baseline)");
       console.log("HCAD parcel:", hcad ? `live · ${hcad.acreage_estimate} ac · score ${hcad.score}` : `FALLBACK (LLM estimate) · ${hcadS.reason?.message||"no coverage"}`);
       if (fema) {
         const fs = fema._source || {};

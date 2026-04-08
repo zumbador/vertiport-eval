@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { TX_HELIPORTS } from "./txHeliports.js";
-import { TX_AIRSPACE, NM_TO_M } from "./txAirspace.js";
+import { US_HELIPORTS } from "./usHeliports.js";
+import { US_AIRSPACE, NM_TO_M } from "./usAirspace.js";
 
 const HELIPORT_COLORS = {
   M: "#28c87a",
@@ -81,7 +81,7 @@ function buildAirspaceLayer(map, siteLat, siteLon) {
   // Only show airspace within ~80nm of the site to avoid clutter
   const maxRangeM = 80 * NM_TO_M;
 
-  for (const ap of TX_AIRSPACE) {
+  for (const ap of US_AIRSPACE) {
     const distToSite = distanceM(siteLat, siteLon, ap.lat, ap.lon);
     if (distToSite > maxRangeM) continue;
 
@@ -182,7 +182,7 @@ export default function SiteMap({ geocode, heliport, airspace }) {
     // Heliport layer
     const heliportGroup = L.layerGroup();
     const nearbyHeliports = [];
-    for (const [hLat, hLon, name, type] of TX_HELIPORTS) {
+    for (const [hLat, hLon, name, type] of US_HELIPORTS) {
       const d = distanceM(lat, lon, hLat, hLon);
       if (d <= 15000) {
         nearbyHeliports.push({ lat: hLat, lon: hLon, name, type, dist: d });

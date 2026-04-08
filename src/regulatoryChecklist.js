@@ -8,7 +8,7 @@
 const CATEGORIES = {
   FAA: "FAA / Federal Aviation",
   ENV: "Environmental",
-  STATE: "State of Texas",
+  STATE: "State / Regional",
   LOCAL: "Local / Municipal",
   UTIL: "Utility & Infrastructure",
   OPS: "Operational Readiness",
@@ -126,25 +126,25 @@ export function buildRegulatoryChecklist(results, evalMode = "passenger") {
   }
 
   add("ENV", "Stormwater Management / NPDES Permit",
-    "EPA Region 6 / TCEQ",
-    "40 CFR §122; TX Water Code §26",
+    "EPA / State Environmental Agency",
+    "40 CFR §122; State water regulations",
     parcel.acreage_estimate >= 1 ? "required" : "likely_required",
     "medium",
-    `Construction disturbing ≥1 acre requires TCEQ SWPPP and EPA NPDES CGP. ${parcel.acreage_estimate ? `Estimated parcel: ~${parcel.acreage_estimate} ac.` : ""} File Notice of Intent (NOI) before grading.`
+    `Construction disturbing ≥1 acre requires a SWPPP and EPA NPDES Construction General Permit. ${parcel.acreage_estimate ? `Estimated parcel: ~${parcel.acreage_estimate} ac.` : ""} File Notice of Intent (NOI) before grading. State may have additional stormwater permit requirements.`
   );
 
   add("ENV", "Section 106 Historic Preservation Review",
-    "State Historic Preservation Office (THC)",
+    "State Historic Preservation Office (SHPO)",
     "54 USC §306108; 36 CFR Part 800",
     "likely_required", "medium",
-    "Required for federal undertakings. Texas Historical Commission reviews for impact on historic properties and archaeological sites. Typically 30-90 day review."
+    "Required for federal undertakings. State Historic Preservation Office reviews for impact on historic properties and archaeological sites. Typically 30-90 day review."
   );
 
   add("ENV", "Endangered Species Consultation (Section 7)",
     "US Fish & Wildlife Service",
     "16 USC §1536; 50 CFR Part 402",
     "likely_required", "medium",
-    "Federal nexus triggers Section 7 consultation. TX coastal and riparian sites may have species concerns. IPaC screening is the first step — can often be cleared quickly."
+    "Federal nexus triggers Section 7 consultation. Coastal, riparian, and sensitive habitat sites may have species concerns. IPaC screening is the first step — can often be cleared quickly."
   );
 
   add("ENV", "Phase I Environmental Site Assessment",
@@ -155,28 +155,28 @@ export function buildRegulatoryChecklist(results, evalMode = "passenger") {
   );
 
   // ═══════════════════════════════════════════════════
-  // STATE OF TEXAS
+  // STATE / REGIONAL
   // ═══════════════════════════════════════════════════
 
-  add("STATE", "TxDOT Aviation Division Notification",
-    "Texas Department of Transportation — Aviation",
-    "TX Transportation Code §21.003; 43 TAC §30",
+  add("STATE", "State Aviation Authority Notification",
+    "State Department of Transportation — Aviation Division",
+    "State aviation code; 49 USC §40103",
     "required", "high",
-    "Texas requires notification of new landing facility construction. TxDOT Aviation maintains the state airport system plan. File concurrently with FAA 7460-1."
+    "Most states require notification of new landing facility construction to the state aviation authority. File concurrently with FAA 7460-1. Authority and requirements vary by state — confirm with relevant state DOT aviation office."
   );
 
-  add("STATE", "TCEQ Air Quality Permit Review",
-    "Texas Commission on Environmental Quality",
-    "TX Health & Safety Code Ch. 382; 30 TAC Ch. 116",
+  add("STATE", "State Air Quality Permit Review",
+    "State Environmental Agency",
+    "State air quality regulations; 40 CFR Parts 51-52",
     "conditional", "low",
-    "eVTOL operations produce zero direct emissions. Permit review may apply to backup generators, charging infrastructure, or construction equipment. Standard exemptions likely available."
+    "eVTOL operations produce zero direct emissions. Permit review may apply to backup generators, charging infrastructure, or construction equipment. Standard exemptions likely available — confirm with state environmental agency."
   );
 
-  add("STATE", "Texas Accessibility Standards (TAS)",
-    "Texas Department of Licensing and Regulation",
-    "TX Gov't Code Ch. 469; TAS §4.1",
+  add("STATE", "ADA / State Accessibility Standards",
+    "State Licensing / Building Authority",
+    "42 USC §12101 (ADA); State accessibility code",
     "required", "medium",
-    "All public-facing facilities must comply with TAS (which incorporates ADA). Passenger loading areas, terminals, and pathways must be accessible. Review during design phase."
+    "All public-facing facilities must comply with ADA and applicable state accessibility standards. Passenger loading areas, terminals, and pathways must be accessible. Review during design phase — some states have standards that exceed federal ADA minimums."
   );
 
   // ═══════════════════════════════════════════════════
@@ -186,7 +186,7 @@ export function buildRegulatoryChecklist(results, evalMode = "passenger") {
   if (needsRezoning || isResidential) {
     add("LOCAL", "Zoning Variance or Rezoning Application",
       "Municipal Planning & Zoning Commission",
-      "TX Local Gov't Code Ch. 211",
+      "Local zoning code",
       "required", "critical",
       `Current zoning (${zoning.land_use || "unknown"}) ${zoningCompliance ? `rated "${zoning.compliance}"` : "may not permit"} vertiport use. Rezoning or special-use permit required. Expect public hearing process (2-6 months). Community opposition is the primary risk.`
     );
@@ -208,7 +208,7 @@ export function buildRegulatoryChecklist(results, evalMode = "passenger") {
 
   add("LOCAL", "Site Plan / Plat Approval",
     "Municipal Planning Department",
-    "TX Local Gov't Code Ch. 212",
+    "Local development code",
     "required", "medium",
     "Site plan must show TLOF/FATO layout, safety areas, vehicle access, utility connections, stormwater management, landscaping buffers. Verify setback requirements accommodate approach surfaces."
   );
@@ -224,11 +224,11 @@ export function buildRegulatoryChecklist(results, evalMode = "passenger") {
   // UTILITY & INFRASTRUCTURE
   // ═══════════════════════════════════════════════════
 
-  add("UTIL", "ERCOT Interconnection & Utility Coordination",
-    "ERCOT / Local Utility (CenterPoint, Oncor, etc.)",
-    "PUCT Subst. R. §25.211; ERCOT Protocols §5",
+  add("UTIL", "Grid Interconnection & Utility Coordination",
+    "Local Electric Utility / ISO/RTO",
+    "FERC Order 2023; state utility commission rules",
     "required", "high",
-    `eVTOL charging demands 500 kW–2 MW peak. ${eia ? `Grid: ${eia.details?.["Grid"] || "ERCOT"}.` : "ERCOT grid."} File interconnection application early — transformer upgrades may have 6-12 month lead time. Consider on-site battery storage to manage peak demand charges.`
+    `eVTOL charging demands 500 kW–2 MW peak. ${eia ? `Grid: ${eia.details?.["Grid"] || "local utility"}.` : "Confirm local utility and grid territory."} File interconnection application early — transformer upgrades may have 6-12 month lead time. Consider on-site battery storage to manage peak demand charges.`
   );
 
   add("UTIL", "Telecommunications & Navigation Aid Coordination",
@@ -320,9 +320,9 @@ export function buildRegulatoryChecklist(results, evalMode = "passenger") {
 
     add("LOCAL", "Cargo Drone Delivery Corridor Agreement",
       "City / County Aviation Department",
-      "City UAS ordinance; TxDOT Aviation Division",
+      "City UAS ordinance; State aviation authority",
       "likely_required", "medium",
-      "Some Texas municipalities (Houston, Dallas) are developing or have existing UAS corridor policies. Coordinate with local authority to confirm the planned flight corridor does not conflict with existing restrictions. Document agreement in writing before committing to route infrastructure."
+      "Many municipalities are developing UAS corridor policies. Coordinate with local authority to confirm the planned flight corridor does not conflict with existing restrictions. Document agreement in writing before committing to route infrastructure."
     );
   }
 
