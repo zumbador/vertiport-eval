@@ -57,32 +57,40 @@ const DEMAND_HEADER = {
   combo:     "DEMAND SCORE — WHY FLY & SHIP HERE?",
 };
 
-function getQuadrant(site, demand, evalMode = "passenger") {
+function getQuadrant(site, demand) {
   const hs = site >= 55, hd = demand >= 70;
-  const desc = {
-    passenger: {
-      pp:"Strong infrastructure and high demand. Priority development candidate.",
-      pn:"Good site fundamentals, limited demand. Suited for cargo-first or logistics.",
-      np:"Strong destination appeal but site constraints limit operations. Find a nearby parcel.",
-      nn:"Neither site fundamentals nor demand justify development at this time.",
-    },
-    cargo: {
-      pp:"Prime cargo vertiport candidate. Strong logistics demand meets viable site.",
-      pn:"Excellent infrastructure, developing logistics demand. Position early for cargo hub.",
-      np:"High cargo demand but site constraints. Seek larger parcel or rooftop option.",
-      nn:"Neither site fundamentals nor cargo demand justify development at this time.",
-    },
-    combo: {
-      pp:"Prime mixed-use vertiport. Serves both cargo logistics and passenger demand.",
-      pn:"Strong site, developing demand. Position early — cargo with passenger upside.",
-      np:"Strong combined demand but site limits both cargo and passenger operations.",
-      nn:"Low priority for cargo/passenger combo development at this time.",
-    },
-  }[evalMode] || {};
-  if (hs && hd)  return { label:"PRIME SITE",          color:C.green,  desc:desc.pp };
-  if (hs && !hd) return { label:"INFRASTRUCTURE PLAY", color:C.teal,   desc:desc.pn };
-  if (!hs && hd) return { label:"DEMAND WITHOUT SITE", color:C.yellow, desc:desc.np };
-  return                 { label:"LOW PRIORITY",        color:C.red,    desc:desc.nn };
+  if (hs && hd)  return { label:"PRIME SITE",          color:C.green  };
+  if (hs && !hd) return { label:"INFRASTRUCTURE PLAY", color:C.teal   };
+  if (!hs && hd) return { label:"DEMAND WITHOUT SITE", color:C.yellow };
+  return                 { label:"LOW PRIORITY",        color:C.red    };
+}
+
+function getSiteDesc(score) {
+  if (score >= 75) return "Strong site — parcel, airspace, and grid criteria support fixed vertiport infrastructure.";
+  if (score >= 55) return "Viable site — key infrastructure criteria met with manageable constraints.";
+  if (score >= 35) return "Marginal site — constraints require engineering mitigation or an alternative parcel.";
+  return "Constrained site — significant barriers to fixed vertiport development at this location.";
+}
+
+function getDemandDesc(score, evalMode = "passenger") {
+  const tiers = {
+    passenger: [
+      [75, "High demand — strong employment density, destination anchors, and medical access confirmed."],
+      [50, "Moderate demand — partial employment and destination drivers present."],
+      [0,  "Limited demand — low destination density or insufficient transit connectivity."],
+    ],
+    cargo: [
+      [75, "High cargo demand — major logistics infrastructure and freight network access confirmed."],
+      [50, "Moderate cargo demand — freight corridor access present; logistics infrastructure developing."],
+      [0,  "Limited cargo demand — insufficient freight density or logistics infrastructure."],
+    ],
+    combo: [
+      [75, "High mixed-use demand — logistics and passenger drivers both well-established."],
+      [50, "Moderate mixed-use demand — partial cargo and passenger draw identified."],
+      [0,  "Limited mixed-use demand — cargo and passenger drivers not yet established."],
+    ],
+  }[evalMode] || [];
+  return tiers.find(([min]) => score >= min)?.[1] || tiers[tiers.length - 1]?.[1] || "";
 }
 
 // ── PDF Generation ─────────────────────────────────────────
@@ -185,16 +193,18 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   // ── Quadrant badge ──
   y += 34;
   const qCol = q.color;
+  const em = results.evalMode || "passenger";
   setFill(qCol + "22"); setDraw(qCol + "66");
-  doc.roundedRect(col, y, W - margin*2, 14, 2, 2, "FD");
+  doc.roundedRect(col, y, W - margin*2, 20, 2, 2, "FD");
   setTxt(qCol);
   doc.setFont("helvetica","bold");
   doc.setFontSize(8);
   doc.text(q.label, col + 4, y + 6);
   setTxt("#444444");
   doc.setFont("helvetica","normal");
-  doc.setFontSize(7.5);
-  doc.text(q.desc, col + 4, y + 11);
+  doc.setFontSize(7);
+  doc.text(getSiteDesc(siteScore), col + 4, y + 12, { maxWidth: W - margin*2 - 8 });
+  doc.text(getDemandDesc(demandScore, em), col + 4, y + 17, { maxWidth: W - margin*2 - 8 });
 
   // ── Development thesis ──
   if (results.development_thesis) {
@@ -688,7 +698,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
       const mData = allModes[md.id] || {};
       const dScore = mData.demand?.composite || 0;
       const mPI = priorityIndex(siteS, dScore);
-      const mq = getQuadrant(siteS, dScore, md.id);
+      const mq = getQuadrant(siteS, dScore);
       const inv = mData.investment;
       const grade = inv?.grade?.grade || "–";
       const capex = inv?.capex?.mid ? `$${(inv.capex.mid/1e6).toFixed(1)}M` : "–";
@@ -2475,7 +2485,7 @@ export default function App() {
               <button onClick={clearRecent} style={{background:"none",border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,letterSpacing:"0.1em"}}>CLEAR ALL</button>
             </div>
             {recentReports.map(r=>{
-              const q=getQuadrant(r.scores.site,r.scores.demand,r.evalMode);
+              const q=getQuadrant(r.scores.site,r.scores.demand);
               const btnBase={fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.12em",padding:"5px 10px",borderRadius:4,cursor:"pointer",border:`1px solid ${C.border}`};
               return(
                 <div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:`1px solid ${C.border}`,background:C.bg}}>
@@ -2523,7 +2533,7 @@ export default function App() {
           const siteScore=results.site?.composite||0;
           const demandScore=dr.demand?.composite||0;
           const pi=priorityIndex(siteScore,demandScore);
-          const q=getQuadrant(siteScore,demandScore,demandTab);
+          const q=getQuadrant(siteScore,demandScore);
           const demandSubLabel={passenger:"passenger draw",cargo:"cargo & logistics",combo:"cargo + passenger"}[demandTab]||"demand";
           const prevSite=previous?.site?.composite??null;
           const prevDemand=previous?.modes?.[demandTab]?.demand?.composite??null;
@@ -2563,8 +2573,9 @@ export default function App() {
                   </div>
 
                   <div style={{padding:"10px 14px",background:`${q.color}0e`,border:`1px solid ${q.color}33`,borderRadius:6,marginBottom:12}}>
-                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:600,color:q.color,marginBottom:4,letterSpacing:"0.1em"}}>{q.label}</div>
-                    <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.5}}>{q.desc}</div>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:600,color:q.color,marginBottom:6,letterSpacing:"0.1em"}}>{q.label}</div>
+                    <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.5}}>{getSiteDesc(siteScore)}</div>
+                    <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.5,marginTop:4}}>{getDemandDesc(demandScore,demandTab)}</div>
                   </div>
 
                   {dr.summary&&<div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.65,marginBottom:10,paddingLeft:12,borderLeft:`2px solid ${C.border}`}}>{dr.summary}</div>}
