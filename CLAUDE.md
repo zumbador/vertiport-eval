@@ -140,11 +140,12 @@ Done:
 - PDF report export working (jsPDF)
 - EIA and NREL API keys registered and stored in .env
 - Vite/React project initialized in /app
-- FAA NASR heliport layer complete (txHeliports.js — 833 TX heliports, heliportLookup.js)
+- FAA NASR heliport layer — usHeliports.js (8,211 national heliports, M/I/G classified)
+  + heliportLookup.js (Haversine + type boosts) [Mar 22 TX; Apr 8 national]
 - Interactive Leaflet map — ground-level view + FAA airspace overlay (Class B/C/D,
-  25 TX airports, toggleable layers, click-for-detail popups) [Mar 28]
-- Estimated flying days per year — NOAA 30-year climate normals, 20 TX reference
-  stations, IDW interpolation, 6 grounding constraints, monthly chart [Mar 28]
+  all US airports via usAirspace.js, toggleable layers, click-for-detail popups) [Mar 28 TX; Apr 8 national]
+- Estimated flying days per year — NOAA 30-year climate normals, 80+ national reference
+  stations, IDW interpolation, 6 grounding constraints, monthly chart [Mar 28 TX; Apr 8 national]
 - Regulatory checklist — context-aware, 22-25 items, 6 categories, auto-classified
   by airspace / zoning / flood / heliport proximity [Mar 28]
 - Investment / viability summary — scenario classification, CAPEX/OPEX/revenue model,
@@ -160,9 +161,9 @@ Done:
   graceful fallback outside Harris County [Mar 29]
 - FEMA NFHL flood zone wired — fetchFEMAFloodScore(), layer 28, Zone X/AE/VE/A/D
   scoring, USGS 3DEP elevation in parallel, graceful fallback [Mar 29]
-- FAA airspace scoring wired — scoreAirspace(), Haversine against TX_AIRSPACE data
-  (extracted to txAirspace.js, shared with SiteMap), Class B/C/D tier lookup,
-  Class B SFC radius tuned to 4nm to account for irregular boundaries [Mar 29]
+- FAA airspace scoring wired — scoreAirspace(), Haversine against US_AIRSPACE data
+  (usAirspace.js, shared with SiteMap), Class B/C/D tier lookup,
+  Class B SFC radius tuned to 4nm to account for irregular boundaries [Mar 29 TX; Apr 8 national]
 - OSM/Overpass zoning wired — fetchZoningScore(), is_in + around:100m parallel queries,
   landuse and building tag scoring, LLM fallback for unmapped suburban areas [Mar 29]
 - Validated benchmarks recalibrated against live data — all 5 test sites re-run [Mar 29]
@@ -186,12 +187,10 @@ Done:
   LOWALTITUDEECONOMY.AERO branding in PDF header right side [Mar 30]
 
 Next up (do in Claude Code):
-- Nationwide address support ✅ (Apr 8) — usAirspace.js (39 Class B + ~85 Class C + key Class D),
-  usHeliports.js (8,211 national from OurAirports), flyingDays.js (80+ national NOAA stations),
-  all TX-only UI copy removed, LLM prompt / parseCoords / EIA / NREL / regulatory checklist generalized.
-- Multi-site / network view (quadrant chart supports multiple points)
-- Rate limiting for beta launch (currently disabled for dev)
-- Beta landing page and email signup (HubSpot integration — free tier creates contact)
+- Beta landing page and email signup — HubSpot integration (VITE_HUBSPOT_PORTAL_ID empty),
+  free tier creates contact, critical path for beta launch
+- Rate limiting — re-enable for beta (currently disabled for dev)
+- Multi-site / network view (quadrant chart supports multiple points, needs UI wiring)
 - Parcel APIs for other TX counties (Dallas/Tarrant/Travis/Bexar — currently LLM fallback)
 - Pro tier: user-adjustable demand criterion weights — sliders for the 5 demand criteria
   per mode, recomputes demand score + PI live, free tier gets defaults only
@@ -207,6 +206,10 @@ Done (remove when stale):
 - LAE branding in UI and PDF ✅
 - Airport and port/cruise terminal demand scoring ✅
 - OSM aeroway detection ✅
+- Nationwide address support ✅ (Apr 8) — usAirspace.js (39 Class B + ~85 Class C + ~65 Class D),
+  usHeliports.js (8,211 national from OurAirports), flyingDays.js (80+ national NOAA stations),
+  all TX-only restrictions removed, LLM prompt / parseCoords / EIA / NREL / regulatory checklist generalized,
+  pre-existing duplicate const em bug fixed
 
 ---
 
