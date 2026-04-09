@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import aamLogo from './assets/aam_logo.png';
+import SetupScreen from './SetupScreen.jsx';
 import { jsPDF } from "jspdf";
 import { findNearestHeliport } from './heliportLookup.js';
 import { US_AIRSPACE } from './usAirspace.js';
@@ -859,42 +860,84 @@ Return ONLY valid JSON, keep ALL string values under 80 chars:
 Evaluate any US address or coordinates. If the location is outside the United States set geocode.valid=false and all scores to 0.`;
 }
 
-async function analyzeWithClaude(input, inputMode, evalMode = "passenger") {
+// ── Shared JSON extractor for all LLM providers ───────────────
+function extractLLMJson(text) {
+  const match = text.replace(/```json|```/g,"").trim().match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("No JSON in response");
+  try { return JSON.parse(match[0]); }
+  catch {
+    let fixed = match[0];
+    const opens = (fixed.match(/\{/g)||[]).length - (fixed.match(/\}/g)||[]).length;
+    const openArr = (fixed.match(/\[/g)||[]).length - (fixed.match(/\]/g)||[]).length;
+    fixed = fixed.replace(/,\s*$/,"");
+    for (let i=0;i<openArr;i++) fixed+="]";
+    for (let i=0;i<opens;i++) fixed+="}";
+    return JSON.parse(fixed);
+  }
+}
+
+async function analyzeWithClaude(input, inputMode, evalMode = "passenger", llmConfig = null) {
+  // Resolve provider + key — Electron stored config takes priority over .env
+  const cfg = llmConfig || { provider: "anthropic", apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY };
+  const { provider, apiKey } = cfg;
+  if (!apiKey) throw new Error("No API key configured. Open Settings to add your key.");
+
+  const prompt = buildPrompt(input, inputMode, evalMode);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35000);
+
   try {
-    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error("VITE_ANTHROPIC_API_KEY not set in .env");
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST", signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2000, temperature:0, messages:[{role:"user",content:buildPrompt(input,inputMode,evalMode)}] }),
-    });
-    clearTimeout(timeout);
-    if (!response.ok) { const t=await response.text(); throw new Error(`API ${response.status}: ${t.slice(0,120)}`); }
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message||"API error");
-    const text = data.content?.find(b=>b.type==="text")?.text||"";
-    if (!text) throw new Error("Empty response");
-    const match = text.replace(/```json|```/g,"").trim().match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("No JSON in response");
-    let parsed;
-    try { parsed = JSON.parse(match[0]); }
-    catch {
-      let fixed = match[0];
-      const opens = (fixed.match(/\{/g)||[]).length - (fixed.match(/\}/g)||[]).length;
-      const openArr = (fixed.match(/\[/g)||[]).length - (fixed.match(/\]/g)||[]).length;
-      fixed = fixed.replace(/,\s*$/,"");
-      for (let i=0;i<openArr;i++) fixed+="]";
-      for (let i=0;i<opens;i++) fixed+="}";
-      parsed = JSON.parse(fixed);
+    let text;
+
+    if (provider === "openai") {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST", signal: controller.signal,
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({ model:"gpt-4o", max_tokens:2000, temperature:0, messages:[{role:"user",content:prompt}] }),
+      });
+      clearTimeout(timeout);
+      if (!r.ok) { const t=await r.text(); throw new Error(`OpenAI ${r.status}: ${t.slice(0,120)}`); }
+      const data = await r.json();
+      text = data.choices?.[0]?.message?.content || "";
+
+    } else if (provider === "gemini") {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST", signal: controller.signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 2000 },
+          }),
+        }
+      );
+      clearTimeout(timeout);
+      if (!r.ok) { const t=await r.text(); throw new Error(`Gemini ${r.status}: ${t.slice(0,120)}`); }
+      const data = await r.json();
+      text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    } else {
+      // Anthropic (default)
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2000, temperature:0, messages:[{role:"user",content:prompt}] }),
+      });
+      clearTimeout(timeout);
+      if (!r.ok) { const t=await r.text(); throw new Error(`API ${r.status}: ${t.slice(0,120)}`); }
+      const data = await r.json();
+      if (data.error) throw new Error(data.error.message||"API error");
+      text = data.content?.find(b=>b.type==="text")?.text||"";
     }
-    return parsed;
+
+    if (!text) throw new Error("Empty response from LLM");
+    return extractLLMJson(text);
   } catch(err) {
     clearTimeout(timeout);
     if (err.name==="AbortError") throw new Error("Request timed out. Try again.");
@@ -2171,7 +2214,12 @@ function LandingPage({ onStart }) {
 }
 
 export default function App() {
-  const [gated, setGated] = useState(() => !!localStorage.getItem("veval_beta_access"));
+  // ── All hooks first — Rules of Hooks ─────────────────────────
+  const [llmConfig, setLlmConfig] = useState(null);
+  // "loading" (Electron, awaiting config read) | "setup" (no key) | "ready"
+  const [setupState, setSetupState] = useState(() => window.electronAPI ? "loading" : "ready");
+  const [showSetup, setShowSetup] = useState(false);
+  const [gated, setGated] = useState(() => !!window.electronAPI || !!localStorage.getItem("veval_beta_access"));
   const [mode,setMode]=useState("address");
   const [address,setAddress]=useState("");
   const [lat,setLat]=useState("");const [lon,setLon]=useState("");const [siteLabel,setSiteLabel]=useState("");
@@ -2186,6 +2234,30 @@ export default function App() {
   const [demandTab,setDemandTab]=useState("passenger");
   const [recentReports,setRecentReports]=useState(()=>{try{return JSON.parse(localStorage.getItem("veval_recent")||"[]");}catch{return [];}});
 
+  // ── Load LLM config on mount ──────────────────────────────────
+  useEffect(() => {
+    async function initKeys() {
+      if (window.electronAPI) {
+        const cfg = await window.electronAPI.getConfig();
+        if (cfg?.apiKey) { setLlmConfig(cfg); setSetupState("ready"); }
+        else { setSetupState("setup"); }
+      } else {
+        setLlmConfig({ provider: "anthropic", apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY });
+        // web mode: setupState stays "ready" (set by initializer)
+      }
+    }
+    initKeys();
+  }, []);
+
+  // ── BYOK gates (conditional renders — after all hooks) ───────
+  if (setupState === "loading") return null; // brief blank while IPC resolves (~10ms)
+  if (setupState === "setup") {
+    return <SetupScreen onComplete={(cfg) => { setLlmConfig(cfg); setSetupState("ready"); }} />;
+  }
+  if (showSetup) {
+    return <SetupScreen currentConfig={llmConfig} onComplete={(cfg) => { setLlmConfig(cfg); setShowSetup(false); }} />;
+  }
+
   if (!gated) return <LandingPage onStart={() => setGated(true)} />;
 
   const canRun=phase!=="loading"&&(mode==="address"?address.trim().length>0:parseCoords(lat,lon)!==null);
@@ -2193,9 +2265,6 @@ export default function App() {
   async function run(override=null){
     if(!override&&!canRun)return;
     const runMode=override?.mode||mode;
-
-    // ── Rate limiting — disabled for development ───────────────
-    // ──────────────────────────────────────────────────────────
 
     if(results)setPrevious(results);
     setPhase("loading");setResults(null);setError(null);
@@ -2211,12 +2280,12 @@ export default function App() {
         input={lat:c.lat,lon:c.lon,label:rawLabel||`${c.lat}, ${c.lon}`};addL(`Coordinates: ${c.lat.toFixed(5)}°N, ${Math.abs(c.lon).toFixed(5)}°W`);
       }else{const addr=override?override.address:address.trim();input={address:addr};addL(`Geocoding: ${addr}`);}
 
-      // ── Three parallel Claude calls — one per demand mode ──
+      // ── Three parallel LLM calls — one per demand mode ───────
       const analysisIdx=logs.length; addL("Running passenger · cargo · combo analysis in parallel...","running");
       const [paxS,cargoS,comboS]=await Promise.allSettled([
-        analyzeWithClaude(input,runMode,"passenger"),
-        analyzeWithClaude(input,runMode,"cargo"),
-        analyzeWithClaude(input,runMode,"combo"),
+        analyzeWithClaude(input,runMode,"passenger",llmConfig),
+        analyzeWithClaude(input,runMode,"cargo",llmConfig),
+        analyzeWithClaude(input,runMode,"combo",llmConfig),
       ]);
       const firstOk=[paxS,cargoS,comboS].find(s=>s.status==="fulfilled"&&s.value?.geocode?.valid);
       if(!firstOk){
@@ -2424,8 +2493,16 @@ export default function App() {
               <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,letterSpacing:"0.15em"}}>LOWALTITUDEECONOMY.AERO</div>
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <div className="blink" style={{width:6,height:6,borderRadius:"50%",background:C.green,boxShadow:`0 0 8px ${C.green}`}}/>
-                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em"}}>HOUSTON BETA</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em"}}>NATIONWIDE BETA</span>
               </div>
+              {window.electronAPI && (
+                <button onClick={()=>setShowSetup(true)} title="AI Provider Settings"
+                  style={{marginTop:4,background:"none",border:`1px solid ${C.border}`,borderRadius:5,cursor:"pointer",
+                    padding:"3px 8px",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim,
+                    letterSpacing:"0.1em",display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{fontSize:11}}>⚙</span> {llmConfig?.provider?.toUpperCase()||"SETUP"}
+                </button>
+              )}
             </div>
           </div>
           <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.textLabel,paddingLeft:58}}>

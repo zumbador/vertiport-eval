@@ -187,13 +187,9 @@ Done:
   LOWALTITUDEECONOMY.AERO branding in PDF header right side [Mar 30]
 
 Next up (do in Claude Code):
-- Electron wrapper + multi-LLM BYOK key management — first-launch screen, provider
-  selector (Anthropic / OpenAI / Gemini), key stored in Electron userData, no backend
-  needed. This is the critical path for open source release.
 - Repo cleanup for public open source release — swap in community default scoring
   weights (see open source strategy doc in Notion), simplify LLM demand rubrics,
   remove HubSpot portal ID (replace with env var placeholder), update README for BYOK
-- Rate limiting — re-enable before any public release (currently disabled for dev)
 - Multi-site / network view (quadrant chart supports multiple points, needs UI wiring)
 - Parcel APIs for other TX counties (Dallas/Tarrant/Travis/Bexar — currently LLM fallback)
 - Pro tier: user-adjustable demand criterion weights — sliders for the 5 demand criteria
@@ -214,6 +210,12 @@ Done (remove when stale):
   usHeliports.js (8,211 national from OurAirports), flyingDays.js (80+ national NOAA stations),
   all TX-only restrictions removed, LLM prompt / parseCoords / EIA / NREL / regulatory checklist generalized,
   pre-existing duplicate const em bug fixed
+- Electron wrapper + BYOK key management ✅ (Apr 9) — electron/main.cjs, electron/preload.cjs,
+  src/SetupScreen.jsx; multi-provider dispatch (Anthropic/OpenAI/Gemini); userData key storage;
+  3-state setup gate; settings gear in header; vite base:"./" for file:// loading
+- electron-builder packaging ✅ (Apr 9) — dist:linux builds .deb (90MB) + .AppImage (115MB);
+  build/icon.png 512x512; all frontend deps moved to devDependencies; release/ in .gitignore
+- Rate limiting — removed (N/A for BYOK Electron; no web deployment planned) ✅
 
 ---
 
@@ -282,3 +284,9 @@ vertiport-eval/
 - Beta: free access for property owners, portfolio managers, brokers
 - Notion project: https://www.notion.so/32b7112e57b981009421d9f2168fdcd7
 - GitHub: https://github.com/zumbador/vertiport-eval (private)
+
+---
+
+## Session Notes
+
+- **2026-04-09:** Electron BYOK desktop app complete. electron/main.cjs + preload.cjs (IPC, userData config storage). src/SetupScreen.jsx (provider tabs: Anthropic/OpenAI/Gemini, key validation, cancel for returning users). analyzeWithClaude() refactored to multi-provider with extractLLMJson() helper. 3-state setupState machine (loading/setup/ready). Settings gear in header. electron-builder: .deb (90MB) + .AppImage (115MB) to release/. All frontend deps moved to devDependencies. Rate limiting removed (N/A for BYOK Electron, no web deployment planned). Scripts: electron:dev, dist:linux, dist:deb, dist:appimage.
