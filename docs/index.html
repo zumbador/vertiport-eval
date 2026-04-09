@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vertiport Eval — eVTOL Site Feasibility Scoring</title>
+  <meta name="description" content="Open source desktop tool for eVTOL vertiport site feasibility. Two-axis scoring built on live FAA, FEMA, NREL, and EIA data. Bring your own AI key." />
+  <meta property="og:title" content="Vertiport Eval" />
+  <meta property="og:description" content="Is your site ready for eVTOL? Two-axis feasibility scoring built on live government data." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" type="image/png" href="logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #F9F9F9;
+      --surface:   #FFFFFF;
+      --card:      #EAF4FC;
+      --border:    #d0dce8;
+      --amber:     #5B9BD5;
+      --amber-dim: #7db0b5;
+      --green:     #1a8a58;
+      --text:      #444444;
+      --text-bright: #222222;
+      --text-dim:  #999999;
+      --red:       #C0392B;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(249,249,249,0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 40px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none;
+    }
+    .nav-brand img { width: 32px; height: 32px; object-fit: contain; }
+    .nav-brand-text {
+      font-family: 'Orbitron', monospace;
+      font-size: 13px; font-weight: 900;
+      color: var(--text-bright); letter-spacing: 0.15em;
+    }
+    .nav-links { display: flex; gap: 24px; align-items: center; }
+    .nav-links a {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; letter-spacing: 0.15em;
+      color: var(--text-dim); text-decoration: none;
+      transition: color 0.15s;
+    }
+    .nav-links a:hover { color: var(--amber); }
+    .nav-cta {
+      background: var(--text-bright) !important;
+      color: #fff !important;
+      padding: 8px 18px !important;
+      border-radius: 6px;
+    }
+    .nav-cta:hover { background: #000 !important; }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 800px; margin: 0 auto;
+      padding: 90px 40px 70px;
+      text-align: center;
+    }
+    .hero-eyebrow {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; letter-spacing: 0.3em;
+      color: var(--amber-dim); margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-family: 'Orbitron', monospace;
+      font-size: clamp(26px, 4.5vw, 46px);
+      font-weight: 900; color: var(--text-bright);
+      line-height: 1.12; margin-bottom: 22px;
+      letter-spacing: 0.02em;
+    }
+    .hero p {
+      font-size: 17px; color: var(--text);
+      max-width: 540px; margin: 0 auto 36px;
+      line-height: 1.7;
+    }
+    .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn-primary {
+      background: var(--text-bright); color: #fff;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px; letter-spacing: 0.15em;
+      padding: 15px 36px; border-radius: 7px;
+      text-decoration: none; transition: background 0.15s;
+      border: none; cursor: pointer;
+    }
+    .btn-primary:hover { background: #000; }
+    .btn-secondary {
+      background: transparent; color: var(--text-bright);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px; letter-spacing: 0.15em;
+      padding: 14px 36px; border-radius: 7px;
+      border: 1px solid var(--border);
+      text-decoration: none; transition: border-color 0.15s;
+    }
+    .btn-secondary:hover { border-color: var(--amber); }
+    .hero-sub {
+      font-size: 12px; color: var(--text-dim);
+      margin-top: 14px;
+      font-family: 'IBM Plex Mono', monospace;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Score preview strip ── */
+    .score-strip {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 32px 40px;
+    }
+    .score-strip-inner {
+      max-width: 860px; margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 24px;
+    }
+    .score-item { text-align: center; }
+    .score-num {
+      font-family: 'Orbitron', monospace;
+      font-size: 36px; font-weight: 900;
+      color: var(--amber); line-height: 1;
+      margin-bottom: 6px;
+    }
+    .score-num.green { color: var(--green); }
+    .score-num.amber { color: var(--amber); }
+    .score-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; letter-spacing: 0.2em;
+      color: var(--text-dim); margin-bottom: 4px;
+    }
+    .score-desc { font-size: 12px; color: var(--text); }
+    .quadrant-badge {
+      display: inline-block;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; letter-spacing: 0.15em;
+      background: var(--card); color: var(--amber);
+      padding: 5px 12px; border-radius: 20px;
+      border: 1px solid var(--border);
+      margin-top: 8px;
+    }
+
+    /* ── Sections ── */
+    section { padding: 80px 40px; }
+    .section-inner { max-width: 900px; margin: 0 auto; }
+    .section-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; letter-spacing: 0.3em;
+      color: var(--amber-dim); margin-bottom: 14px;
+    }
+    .section-title {
+      font-family: 'Orbitron', monospace;
+      font-size: clamp(18px, 2.5vw, 26px);
+      font-weight: 900; color: var(--text-bright);
+      margin-bottom: 16px; letter-spacing: 0.04em;
+    }
+    .section-body {
+      font-size: 15px; color: var(--text);
+      max-width: 580px; line-height: 1.7;
+    }
+
+    /* ── Feature grid ── */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px; margin-top: 40px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px; padding: 26px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .feature-card:hover {
+      border-color: var(--amber);
+      transform: translateY(-2px);
+    }
+    .feature-icon {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 22px; color: var(--amber);
+      margin-bottom: 12px;
+    }
+    .feature-name {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.12em; color: var(--text-bright);
+      margin-bottom: 8px;
+    }
+    .feature-desc { font-size: 13px; color: var(--text); line-height: 1.6; }
+
+    /* ── BYOK section ── */
+    .byok-section { background: var(--surface); }
+    .byok-providers {
+      display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap;
+    }
+    .provider-chip {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; letter-spacing: 0.1em;
+      color: var(--text-bright);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 16px;
+    }
+    .byok-note {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; letter-spacing: 0.1em;
+      color: var(--text-dim); margin-top: 20px;
+      padding: 12px 16px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      display: inline-block;
+    }
+
+    /* ── Data sources table ── */
+    .data-table {
+      width: 100%; border-collapse: collapse;
+      margin-top: 28px; font-size: 13px;
+    }
+    .data-table th {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; letter-spacing: 0.2em;
+      color: var(--text-dim); font-weight: 600;
+      text-align: left; padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td {
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--bg);
+      color: var(--text); vertical-align: top;
+    }
+    .data-table tr:hover td { background: var(--card); }
+    .data-table .source {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px; color: var(--amber-dim);
+    }
+    .live-badge {
+      display: inline-block;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 8px; letter-spacing: 0.1em;
+      color: var(--green); background: rgba(26,138,88,0.1);
+      border: 1px solid rgba(26,138,88,0.25);
+      border-radius: 3px; padding: 2px 6px;
+      vertical-align: middle; margin-left: 6px;
+    }
+
+    /* ── Install section ── */
+    .install-section { background: var(--text-bright); }
+    .install-section .section-label { color: rgba(255,255,255,0.4); }
+    .install-section .section-title { color: #fff; }
+    .install-section .section-body { color: rgba(255,255,255,0.7); }
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px; margin-top: 36px;
+    }
+    .platform-card {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px; padding: 24px;
+      text-align: center;
+      transition: background 0.15s;
+    }
+    .platform-card:hover { background: rgba(255,255,255,0.12); }
+    .platform-card a {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; letter-spacing: 0.15em;
+      color: #fff; text-decoration: none;
+    }
+    .platform-icon { font-size: 28px; margin-bottom: 10px; }
+    .platform-name {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.12em; color: #fff;
+      margin-bottom: 6px;
+    }
+    .platform-ext {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; color: rgba(255,255,255,0.45);
+      margin-bottom: 16px;
+    }
+    .dl-btn {
+      display: inline-block;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; letter-spacing: 0.15em;
+      color: #fff; text-decoration: none;
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 8px 18px; border-radius: 5px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .dl-btn:hover { border-color: #fff; background: rgba(255,255,255,0.1); }
+    .install-alt {
+      margin-top: 32px; padding-top: 28px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    .code-block {
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 7px; padding: 18px 22px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px; color: rgba(255,255,255,0.8);
+      line-height: 1.8; margin-top: 16px;
+      overflow-x: auto;
+    }
+    .code-block .comment { color: rgba(255,255,255,0.35); }
+
+    /* ── Scoring section ── */
+    .axis-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px; margin-top: 32px;
+    }
+    .axis-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px; padding: 24px;
+    }
+    .axis-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; letter-spacing: 0.2em;
+      color: var(--text-dim); margin-bottom: 8px;
+    }
+    .axis-name {
+      font-family: 'Orbitron', monospace;
+      font-size: 14px; font-weight: 900;
+      color: var(--text-bright); margin-bottom: 12px;
+    }
+    .criteria-list { list-style: none; }
+    .criteria-list li {
+      font-size: 12px; color: var(--text);
+      padding: 5px 0;
+      border-bottom: 1px solid var(--bg);
+      display: flex; justify-content: space-between;
+      align-items: center;
+    }
+    .criteria-list li:last-child { border-bottom: none; }
+    .criteria-wt {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px; color: var(--amber);
+    }
+    .pi-formula {
+      margin-top: 28px; padding: 18px 22px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px; color: var(--text-bright);
+      text-align: center; letter-spacing: 0.05em;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px 40px;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 12px;
+    }
+    footer span {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; color: var(--text-dim);
+      letter-spacing: 0.15em;
+    }
+    footer a {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px; color: var(--text-dim);
+      letter-spacing: 0.15em; text-decoration: none;
+    }
+    footer a:hover { color: var(--amber); }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      nav { padding: 14px 20px; }
+      .nav-links .hide-mobile { display: none; }
+      section { padding: 60px 20px; }
+      .hero { padding: 60px 20px 50px; }
+      .score-strip { padding: 28px 20px; }
+      footer { padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Nav ── -->
+<nav>
+  <a class="nav-brand" href="#">
+    <img src="logo.png" alt="LAE" />
+    <span class="nav-brand-text">VERTIPORT EVAL</span>
+  </a>
+  <div class="nav-links">
+    <a href="#how-it-works" class="hide-mobile">HOW IT WORKS</a>
+    <a href="#data" class="hide-mobile">DATA</a>
+    <a href="#byok" class="hide-mobile">BYOK</a>
+    <a href="#install" class="nav-cta">DOWNLOAD</a>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<div class="hero">
+  <div class="hero-eyebrow">FAA · FEMA · NREL · EIA · OSM · NASR</div>
+  <h1>Is your site ready<br>for eVTOL?</h1>
+  <p>
+    Enter an address. Get a two-axis feasibility score built on live government data.
+    Find out in 30 seconds whether your site can support a vertiport — before you
+    spend a dollar on engineering.
+  </p>
+  <div class="hero-actions">
+    <a href="#install" class="btn-primary">DOWNLOAD FREE</a>
+    <a href="https://github.com/zumbador/vertiport-eval" class="btn-secondary" target="_blank" rel="noopener">VIEW ON GITHUB</a>
+  </div>
+  <div class="hero-sub">Open source · MIT license · Bring your own AI key</div>
+</div>
+
+<!-- ── Score strip ── -->
+<div class="score-strip">
+  <div class="score-strip-inner">
+    <div class="score-item">
+      <div class="score-label">SITE SCORE</div>
+      <div class="score-num green">74</div>
+      <div class="score-desc">Infrastructure viability</div>
+    </div>
+    <div class="score-item">
+      <div class="score-label">DEMAND SCORE</div>
+      <div class="score-num amber">79</div>
+      <div class="score-desc">Operational demand</div>
+    </div>
+    <div class="score-item">
+      <div class="score-label">PRIORITY INDEX</div>
+      <div class="score-num green">76</div>
+      <div class="score-desc">Weighted composite</div>
+      <div class="quadrant-badge">PRIME SITE</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── How it works ── -->
+<section id="how-it-works">
+  <div class="section-inner">
+    <div class="section-label">HOW IT WORKS</div>
+    <h2 class="section-title">Two questions. One score.</h2>
+    <p class="section-body">
+      Most site evaluations ask only whether infrastructure can be built. Vertiport Eval
+      asks both questions simultaneously — and weights them for cargo operations, the
+      eVTOL use case with the clearest near-term economics.
+    </p>
+
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">▣</div>
+        <div class="feature-name">SITE SCORE</div>
+        <div class="feature-desc">Parcel size, FAA airspace class, zoning compliance, FEMA flood zone, and grid capacity — scored against FAA and NREL vertiport standards. Max 75 points.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">◎</div>
+        <div class="feature-name">DEMAND SCORE</div>
+        <div class="feature-desc">Employment density, major destinations, medical facilities, cargo infrastructure, and transit gaps. Three modes: passenger, cargo, or combined.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">◈</div>
+        <div class="feature-name">PRIORITY INDEX</div>
+        <div class="feature-desc">Site × 0.60 + Demand × 0.40. Quadrant placement — PRIME SITE, INFRASTRUCTURE PLAY, DEMAND WITHOUT SITE, or LOW PRIORITY — tells you where to focus.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⬡</div>
+        <div class="feature-name">PDF REPORT</div>
+        <div class="feature-desc">Full export with satellite map, scoring breakdown, regulatory checklist, investment viability model, and 10-year NPV estimate.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">◉</div>
+        <div class="feature-name">AIRSPACE MAP</div>
+        <div class="feature-desc">Interactive 2D Leaflet map with FAA Class B/C/D overlays. 3D obstacle surface map via Mapbox GL JS with FAA EB 105A approach surfaces.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">▦</div>
+        <div class="feature-name">HELIPORT LAYER</div>
+        <div class="feature-desc">8,211 FAA NASR heliports classified by type. Medical heliports within 500m boost both site and demand scores — a strong proxy for verified infrastructure.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Data sources ── -->
+<section id="data" style="background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <div class="section-inner">
+    <div class="section-label">DATA SOURCES</div>
+    <h2 class="section-title">Live government data. No estimates where APIs exist.</h2>
+    <p class="section-body">
+      Live API calls override LLM estimates for every criterion with a public data source.
+      The LLM scores only what the APIs cannot reach.
+    </p>
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>CRITERION</th>
+          <th>SOURCE</th>
+          <th>TYPE</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Parcel acreage + land class</td>
+          <td class="source">Harris County Appraisal District (HCAD)</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>Flood zone</td>
+          <td class="source">FEMA National Flood Hazard Layer (NFHL)</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>Elevation</td>
+          <td class="source">USGS 3DEP</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>FAA airspace classification</td>
+          <td class="source">FAA NASR — 39 Class B + ~85 Class C + ~65 Class D</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>Heliport registry (8,211 national)</td>
+          <td class="source">FAA NASR via OurAirports</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>Zoning + land use</td>
+          <td class="source">OpenStreetMap / Overpass API</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>Power grid capacity</td>
+          <td class="source">EIA Open Data API v2</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>Distributed energy resources</td>
+          <td class="source">NREL RE Atlas API</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>Flying days / climate</td>
+          <td class="source">NOAA 30-year Climate Normals (80+ stations)</td>
+          <td><span class="live-badge">LIVE</span></td>
+        </tr>
+        <tr>
+          <td>Demand scoring (fallback)</td>
+          <td class="source">Anthropic / OpenAI / Gemini — your key</td>
+          <td>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:0.1em;color:var(--text-dim)">BYOK</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ── BYOK ── -->
+<section id="byok">
+  <div class="section-inner">
+    <div class="section-label">BRING YOUR OWN KEY</div>
+    <h2 class="section-title">Your key stays on your machine.</h2>
+    <p class="section-body">
+      Vertiport Eval uses a large language model to score demand factors that public APIs
+      don't cover. You supply the key — it's stored in your OS user data directory and
+      never transmitted to any server other than the provider you choose.
+    </p>
+
+    <div class="byok-providers">
+      <div class="provider-chip">ANTHROPIC — Claude</div>
+      <div class="provider-chip">OPENAI — GPT-4o</div>
+      <div class="provider-chip">GOOGLE — Gemini 2.0 Flash</div>
+    </div>
+
+    <div class="byok-note">
+      KEY STORED LOCALLY IN OS USERDATA · NEVER TRANSMITTED · SWITCH PROVIDERS ANYTIME
+    </div>
+
+    <div class="feature-grid" style="margin-top: 36px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+      <div class="feature-card">
+        <div class="feature-name">FREE KEYS AVAILABLE</div>
+        <div class="feature-desc">All three providers offer free tiers. A single evaluation uses less than 6,000 tokens across three parallel calls.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-name">CHANGE ANYTIME</div>
+        <div class="feature-desc">The settings gear in the header reopens the provider screen. Switch between Anthropic, OpenAI, and Gemini without reinstalling.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-name">NO BACKEND</div>
+        <div class="feature-desc">No server, no account, no subscription. The desktop app calls government APIs and your AI provider directly from your machine.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Scoring model ── -->
+<section style="background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <div class="section-inner">
+    <div class="section-label">SCORING MODEL</div>
+    <h2 class="section-title">What gets measured.</h2>
+
+    <div class="axis-grid">
+      <div class="axis-card">
+        <div class="axis-label">SITE SCORE — MAX 75</div>
+        <div class="axis-name">CAN IT BE BUILT?</div>
+        <ul class="criteria-list">
+          <li>Parcel size <span class="criteria-wt">25%</span></li>
+          <li>FAA airspace class <span class="criteria-wt">25%</span></li>
+          <li>Zoning compliance <span class="criteria-wt">15%</span></li>
+          <li>Soil / flood zone <span class="criteria-wt">10%</span></li>
+          <li>Power grid &amp; DER <span class="criteria-wt">25%</span></li>
+        </ul>
+      </div>
+      <div class="axis-card">
+        <div class="axis-label">DEMAND SCORE — MAX 100</div>
+        <div class="axis-name">WHY FLY HERE?</div>
+        <ul class="criteria-list">
+          <li>Employment density <span class="criteria-wt">30%</span></li>
+          <li>Destinations / attractions <span class="criteria-wt">25%</span></li>
+          <li>Medical &amp; institutional <span class="criteria-wt">20%</span></li>
+          <li>Cargo &amp; logistics <span class="criteria-wt">15%</span></li>
+          <li>Transit gap <span class="criteria-wt">10%</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pi-formula">
+      Priority Index = Site × 0.60 + Demand × 0.40
+    </div>
+  </div>
+</section>
+
+<!-- ── Install ── -->
+<section id="install" class="install-section">
+  <div class="section-inner">
+    <div class="section-label">DOWNLOAD</div>
+    <h2 class="section-title">Available for Linux, Windows, and macOS.</h2>
+    <p class="section-body">
+      Desktop app — no browser, no server, no cloud account.
+      On first launch, you'll be prompted to add your AI provider key.
+    </p>
+
+    <div class="platform-grid">
+      <div class="platform-card">
+        <div class="platform-icon">🐧</div>
+        <div class="platform-name">LINUX</div>
+        <div class="platform-ext">.deb · .AppImage</div>
+        <a class="dl-btn" href="https://github.com/zumbador/vertiport-eval/releases/latest" target="_blank" rel="noopener">DOWNLOAD</a>
+      </div>
+      <div class="platform-card">
+        <div class="platform-icon">⊞</div>
+        <div class="platform-name">WINDOWS</div>
+        <div class="platform-ext">.exe installer</div>
+        <a class="dl-btn" href="https://github.com/zumbador/vertiport-eval/releases/latest" target="_blank" rel="noopener">DOWNLOAD</a>
+      </div>
+      <div class="platform-card">
+        <div class="platform-icon">⌘</div>
+        <div class="platform-name">MACOS</div>
+        <div class="platform-ext">.dmg</div>
+        <a class="dl-btn" href="https://github.com/zumbador/vertiport-eval/releases/latest" target="_blank" rel="noopener">DOWNLOAD</a>
+      </div>
+    </div>
+
+    <div class="install-alt">
+      <p style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.15em;color:rgba(255,255,255,0.4);margin-bottom:4px;">OR BUILD FROM SOURCE</p>
+      <div class="code-block">
+<span class="comment"># clone and install</span>
+git clone https://github.com/zumbador/vertiport-eval.git
+cd vertiport-eval &amp;&amp; npm install
+
+<span class="comment"># copy env template and add your API keys</span>
+cp .env.example .env
+
+<span class="comment"># run desktop app in dev mode</span>
+npm run electron:dev
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <span>VERTIPORT EVAL · MIT LICENSE · <a href="https://github.com/zumbador/vertiport-eval" target="_blank" rel="noopener">GITHUB</a></span>
+  <span><a href="https://businessaviation.aero" target="_blank" rel="noopener">BUSINESSAVIATION.AERO</a></span>
+</footer>
+
+</body>
+</html>
