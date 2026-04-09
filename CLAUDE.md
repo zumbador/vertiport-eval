@@ -187,13 +187,17 @@ Done:
   LOWALTITUDEECONOMY.AERO branding in PDF header right side [Mar 30]
 
 Next up (do in Claude Code):
-- Beta landing page and email signup — HubSpot integration (VITE_HUBSPOT_PORTAL_ID empty),
-  free tier creates contact, critical path for beta launch
-- Rate limiting — re-enable for beta (currently disabled for dev)
+- Electron wrapper + multi-LLM BYOK key management — first-launch screen, provider
+  selector (Anthropic / OpenAI / Gemini), key stored in Electron userData, no backend
+  needed. This is the critical path for open source release.
+- Repo cleanup for public open source release — swap in community default scoring
+  weights (see open source strategy doc in Notion), simplify LLM demand rubrics,
+  remove HubSpot portal ID (replace with env var placeholder), update README for BYOK
+- Rate limiting — re-enable before any public release (currently disabled for dev)
 - Multi-site / network view (quadrant chart supports multiple points, needs UI wiring)
 - Parcel APIs for other TX counties (Dallas/Tarrant/Travis/Bexar — currently LLM fallback)
 - Pro tier: user-adjustable demand criterion weights — sliders for the 5 demand criteria
-  per mode, recomputes demand score + PI live, free tier gets defaults only
+  per mode, recomputes demand score + PI live
 
 Done (remove when stale):
 - Replace remaining knowledge-base scoring estimates with live API calls ✅
@@ -228,12 +232,18 @@ Done (remove when stale):
    placement, and pass/fail indicators only.
 10. **Business model** — Software qualifies and scopes consulting engagements.
     The free report is the top of a professional services funnel, not standalone SaaS.
-11. **Revenue sequencing** — Free email-gated beta → Freemium at Phase 1 launch
-    ($49/month Pro) → Per-report tiers ($300–600 Desktop, $4k–8k Field Audit,
-    $15k–30k Engineering Package) → B2B API licensing (Phase 2+)
-12. Subcontract field work for premium tiers (drone surveys, acoustic baselines,
+11. **Distribution model (decided Apr 9)** — Open source MIT-licensed desktop app
+    (Electron, BYOK). Three tiers: (1) Open source self-serve BYOK, (2) Private fork
+    with proprietary scoring methodology, (3) Paid setup service $150–300 for
+    non-technical users. No ScalaHosting needed for the core tool.
+12. **Open source scoring split** — Public repo gets community default weights
+    (rounded/simplified). Private fork retains tuned values validated against 7+ sites.
+    LLM demand rubrics stay private entirely. See Notion: Open Source Strategy page.
+13. **Revenue sequencing** — Open source BYOK → Paid setup service ($150–300) →
+    Desktop Analyst Report ($300–600) → Field Audit ($4k–8k) →
+    Engineering Package ($15k–30k)
+14. Subcontract field work for premium tiers (drone surveys, acoustic baselines,
     utility inquiries) — build in-house only when volume justifies it
-13. 3D map planned — Mapbox GL JS for obstacle surfaces and approach/departure paths
 
 ---
 
