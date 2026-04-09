@@ -796,43 +796,39 @@ function buildPrompt(input, inputMode, evalMode = "passenger") {
     ? `IMPORTANT: Evaluate what is actually at these coordinates. For parks or open land score parcel based on actual site area not adjacent residential lot.` : ``;
 
   const siteCriteria = `SITE CRITERIA:
-PARCEL (25%): >10ac=90-100, 5-10=80-90, 2-5=60-75, 0.5-2=25-45, <0.5=5-20. Flag <1.5ac.
-AIRSPACE (25%): Rural Class G >40nm=90-100. Suburban Class G 20-40nm=83-90. Suburban Class G 10-20nm=72-82. Near Class D or Class C outer=65-72. Class C SFC or Class B outer (3000ft+ floor)=55-65. Class B outer (2000ft floor)=40-50. Class B SFC=10-22.
-ZONING (15%): Industrial/logistics=88-100. Business park=65-80. Public park/greenspace=55-70. Mixed commercial=45-62. Galleria/luxury retail=22-35. Residential=8-22.
-SOIL (10%): Zone X=85-98. Stormwater detention=35-50. Zone AE=18-35. Zone AE at active seaport/port terminal=30-42 — coastal port siting, elevation mitigation expected. Zone VE (coastal wave action)=10-20.
+PARCEL (25%): >10ac=80-100. 3-10ac=60-80. 1-3ac=35-60. <1ac=5-35. Flag sites under 1.5ac (below NREL minimum for fixed vertiport infrastructure).
+AIRSPACE (25%): Class G remote (>20nm from controlled airport)=70-100. Class G suburban=50-70. Class D vicinity=40-55. Class C vicinity=30-50. Class B outer=15-35. Class B surface area=5-15.
+ZONING (15%): Industrial/logistics/freight=75-100. Business/commercial park=55-75. Mixed commercial=40-60. Retail/residential=5-35.
+SOIL (10%): FEMA Zone X (minimal flood risk)=75-100. Zone X (500-yr)=55-75. Zone AE (1%/yr flood)=20-45. Zone VE (coastal wave action)=5-20.
 SITE_COMPOSITE = parcel*0.25 + airspace*0.25 + zoning*0.15 + soil*0.10. Max=75.`;
 
   const demandSections = {
-    passenger: `DEMAND CRITERIA:
-EMPLOYMENT (30%): CBD/Energy Corridor/major hub=80-100. Business park=55-75. Mixed=30-50. Residential/park=5-25.
-DESTINATIONS (25%): Stadium/arena/convention center=85-100. Major international/hub airport=80-95. Major cruise homeport or ferry terminal=82-95. Regional commercial airport=65-80. General aviation airport=45-62. Outdoor venue/major park/museum=55-75. Industrial=5-20.
-MEDICAL (20%): Tier 1 academic medical center / hospital cluster=90-100. Regional hospital=60-80. Clinic=25-45. None=5-20.
-CARGO (15%): Port/major hub=85-100. Industrial corridor=60-80. Humble/Will Clayton logistics=75-90. Residential/park=5-20.
-TRANSIT_GAP (10%): Remote/car-dependent=70-90. Suburban limited transit=50-70. Near Metro rail=10-30.
+    passenger: `DEMAND CRITERIA (PASSENGER):
+EMPLOYMENT (30%): Score employment density and major workforce concentrations within 5nm. Higher scores for CBDs, major employment hubs, and dense office/industrial areas.
+DESTINATIONS (25%): Score proximity to major trip generators — airports, stadiums, convention centers, tourist attractions, major transit hubs.
+MEDICAL (20%): Score hospital and medical facility density. Major academic medical centers and hospital clusters score highest; clinics and urgent care score lower.
+CARGO (15%): Score cargo and logistics infrastructure — ports, freight airports, distribution centers, industrial corridors.
+TRANSIT_GAP (10%): Score the gap in ground transit coverage. Higher transit gap = higher eVTOL utility. Remote/car-dependent areas score highest.
 DEMAND_COMPOSITE = employment*0.30 + destinations*0.25 + medical*0.20 + cargo*0.15 + transit_gap*0.10.`,
 
     cargo: `DEMAND CRITERIA (CARGO OPERATIONS):
-LOGISTICS_HUB (30%): Major seaport/container terminal or cruise homeport=90-100. Major fulfillment/distribution center adjacent=85-95. Industrial/logistics park=65-82. Near freight corridor=45-65. Commercial=25-45. Residential=5-20.
-LAST_MILE (25%): NOTE — for seaport/maritime terminal locations, score on container throughput and intermodal volume, NOT population density. Major container/ro-ro port=82-95. Active intermodal terminal=65-80. Dense urban delivery demand (pop >50K in 5nm)=80-100. Suburban e-commerce density=55-75. Mixed delivery zone=35-55. Low density=10-30.
-CARGO_NETWORK (20%): On-port or adjacent to major seaport/container terminal=90-100. Adjacent to major freight airport=85-95. Near intermodal terminal=65-80. Near major highway interchange=50-65. Suburban access=35-50. No freight infra=10-25.
-PRIORITY_FREIGHT (15%): International container/ro-ro terminal=70-85. On medical/pharma supply route (TMC area)=80-100. Cold chain/perishables hub=65-80. High-value cargo corridor=50-65. General freight=25-45. None=5-20.
-GROUND_ACCESS (10%): Direct truck dock + highway ramp=80-100. Good road network=55-75. Barrier island/causeway-only access=40-55. Limited heavy vehicle access=30-50. Poor=5-25.
+LOGISTICS_HUB (30%): Score proximity and access to major cargo generators — seaports, container terminals, fulfillment centers, industrial/logistics parks, freight corridors.
+LAST_MILE (25%): Score last-mile delivery demand. For port/maritime locations, weight container throughput and intermodal volume. For urban locations, weight delivery density and population concentration.
+CARGO_NETWORK (20%): Score freight network connectivity — proximity to major freight airports, intermodal terminals, highway interchange access, and port infrastructure.
+PRIORITY_FREIGHT (15%): Score priority freight demand — medical/pharma supply routes, cold chain hubs, high-value cargo corridors, and time-sensitive logistics.
+GROUND_ACCESS (10%): Score ground access quality for heavy vehicles — truck docks, highway ramp access, road network capacity, and any access constraints (causeways, weight limits).
 DEMAND_COMPOSITE = logistics_hub*0.30 + last_mile*0.25 + cargo_network*0.20 + priority_freight*0.15 + ground_access*0.10.`,
 
     combo: `DEMAND CRITERIA (CARGO + PASSENGER COMBO):
-LOGISTICS_HUB (25%): Major seaport/container terminal or cruise homeport=90-100. Major fulfillment/distribution center adjacent=85-95. Industrial/logistics park=65-82. Near freight corridor=45-65. Commercial mixed use=25-45. Residential=5-20.
-EMPLOYMENT (25%): Employment density AND major passenger destinations combined. Business districts with logistics workers=80-100. Suburban commercial=45-70. Residential=10-30.
-CARGO_NETWORK (20%): Freight network value AND transit connectivity. On-port or airport adjacent=88-100. Good highway + transit=55-75. Car-dependent=25-50.
-PRIORITY_FREIGHT (15%): Medical supply routes AND hospital/institutional passenger demand combined. TMC area=85-100. Regional hospital + freight=55-75. Neither=10-30.
-LAST_MILE (15%): Last-mile delivery demand AND transit gap for passengers combined. Dense urban=80-100. Suburban=45-65. Rural=10-30.
+LOGISTICS_HUB (25%): Score proximity to major cargo generators — seaports, fulfillment centers, industrial parks, freight corridors.
+EMPLOYMENT (25%): Score combined employment density and major passenger destinations. Weight both workforce concentration and trip generators.
+CARGO_NETWORK (20%): Score freight network value AND passenger transit connectivity combined.
+PRIORITY_FREIGHT (15%): Score combined medical/pharma supply routes and hospital/institutional passenger demand.
+LAST_MILE (15%): Score combined last-mile delivery demand and passenger transit gap.
 DEMAND_COMPOSITE = logistics_hub*0.25 + employment*0.25 + cargo_network*0.20 + priority_freight*0.15 + last_mile*0.15.`,
   };
 
-  const benchmarks = {
-    passenger: `BENCHMARKS: Large logistics/industrial park: site 68-82, demand 45-60. Dense urban retail/office: site 28-42, demand 62-78. Major medical center: site 35-55, demand 85-95. Major hub airport area: site 35-55, demand 78-90. Cruise/port terminal: site 45-62, demand 70-85. Residential: site 15-28, demand 15-30.`,
-    cargo:     `BENCHMARKS (cargo): Logistics/industrial park near freight corridor: site 68-82, demand 70-85. Major air cargo airport area: site 55-70, demand 75-90. Major seaport/container terminal: site 55-72, demand 80-92. Cruise/ferry terminal: site 45-62, demand 72-85. Medical supply corridor (near major hospital cluster): site 35-55, demand 72-85.`,
-    combo:     `BENCHMARKS (combo): Industrial/logistics park: site 68-82, demand 60-75. Dense urban mixed use: site 28-42, demand 52-68. Major medical complex: site 35-55, demand 78-90. Seaport/cruise terminal: site 45-62, demand 68-82.`,
-  };
+  const benchmarks = {};
 
   const demandSchemas = {
     passenger: `"demand":{"composite":0,"employment":{"score":0,"notes":"short note"},"destinations":{"score":0,"notes":"short note"},"medical":{"score":0,"notes":"short note"},"cargo":{"score":0,"notes":"short note"},"transit_gap":{"score":0,"notes":"short note"}}`,
@@ -851,8 +847,6 @@ ${coordNote}
 ${siteCriteria}
 
 ${demandSections[em]}
-
-${benchmarks[em]}
 
 Return ONLY valid JSON, keep ALL string values under 80 chars:
 {"geocode":{"matched":"location name","lat":29.76,"lon":-95.37,"valid":true},"site":{"composite":0,"parcel":{"score":0,"acreage_estimate":0.0,"land_type":"type","notes":"short note","flags":["flag"]},"airspace":{"score":0,"status":"class","laanc_required":false,"nearest_airport":"name dist","notes":"short note","flags":[]},"zoning":{"score":0,"compliance":"Good","land_use":"type","notes":"short note","flags":[]},"soil":{"score":0,"flood_zone":"Zone X","slope_estimate":"<1%","elevation_ft":50,"notes":"short note","flags":[]}},${demandSchemas[em]},"summary":"2 sentences max","development_thesis":"one sentence best use case","top_strengths":["strength 1","strength 2"],"top_concerns":["concern 1"]}
