@@ -23,7 +23,7 @@ VES is open source (MIT). You bring your own AI API key — nothing is sent to a
 |------|-------------|
 | **Open source** | Full desktop app, BYOK (Anthropic / OpenAI / Gemini), community scoring weights |
 | **Private fork** | Proprietary scoring methodology tuned against validated real sites |
-| **Setup service** | One-time setup for non-technical users (see [businessaviation.aero](https://businessaviation.aero)) |
+| **Setup service** | One-time setup for non-technical users (see [LowAltitudeEconomy.aero](https://lowaltitudeeconomy.aero)) |
 
 ---
 
