@@ -166,7 +166,7 @@ Scoring weights, thresholds, and LLM rubrics are documented internally. Users se
 - [ ] Map-based site selection — click any building or parcel on the map to select it, reverse-geocode to address, and trigger evaluation instantly
 - [ ] Area batch query — draw a polygon on the map to score all candidate parcels inside it and return a ranked list (pre-screening filter applied before full API chain)
 - [ ] Multi-site / network view — corridor demand mapping between scored sites
-- [ ] Pro tier — demand criterion weight sliders (free tier gets defaults)
+- [ ] Demand criterion weight sliders (repo ships with defaults)
 - [ ] Parcel APIs for Dallas, Tarrant, Travis, and Bexar counties
 
 ---
