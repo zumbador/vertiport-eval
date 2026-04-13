@@ -53,7 +53,19 @@ VES is open source (MIT). You bring your own AI API key — nothing is sent to a
 | LLM demand scoring | User-supplied key — Anthropic, OpenAI, or Google Gemini |
 
 ---
+## ⬇️ Download
 
+Pre-built installers are available on the [Releases page](https://github.com/zumbador/vertiport-eval/releases):
+
+| Platform | File |
+|----------|------|
+| Windows | `Vertiport Eval Setup 0.1.0.exe` |
+| Linux (AppImage) | `Vertiport Eval-0.1.0.AppImage` |
+| Linux (Debian/Ubuntu) | `vertiport-eval_0.1.0_amd64.deb` |
+
+> First time? See [BYOK_SETUP.md](./BYOK_SETUP.md) for API key setup instructions.
+
+---
 ## Prerequisites
 
 - Node.js 18+
