@@ -1333,25 +1333,25 @@ function EmailGate({ onAccess }) {
     e.preventDefault();
     if (!email.trim() || !role) return;
     setSubmitting(true); setErr(null);
-    // HubSpot submission — non-blocking, gate passes regardless
-    try {
-      const pid  = import.meta.env.VITE_HUBSPOT_PORTAL_ID;
-      const fgid = import.meta.env.VITE_HUBSPOT_FORM_GUID;
-      if (pid && fgid) {
-        fetch(`https://api.hsforms.com/submissions/v3/integration/submit/${pid}/${fgid}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fields: [
-              { name: "email",     value: email.trim() },
-              { name: "firstname", value: firstName.trim() },
-              { name: "jobtitle",  value: role },
-            ],
-            context: { pageUri: window.location.href, pageName: "Vertiport Eval Beta" },
-          }),
-        }).catch(() => {});
-      }
-    } catch (_) {}
+    // AcyMailing submission — non-blocking, gate passes regardless
+    const base = import.meta.env.VITE_ACYM_BASE_URL;
+    const key  = import.meta.env.VITE_ACYM_API_KEY;
+    const list = import.meta.env.VITE_ACYM_LIST_ID;
+
+    if (base && key && list) {
+      const headers = { "Api-Key": key, "Content-Type": "application/json" };
+      const apiUrl  = `${base}/index.php?page=acymailing_front&option=com_acym&ctrl=api`;
+
+      await fetch(`${apiUrl}&task=createOrUpdateUser`, {
+        method: "POST", headers,
+        body: JSON.stringify({ email: email.trim(), name: firstName.trim(), active: 1, confirmed: 1, sendConf: false }),
+      }).catch(() => {});
+
+      await fetch(`${apiUrl}&task=subscribeUsers`, {
+        method: "POST", headers,
+        body: JSON.stringify({ emails: [email.trim()], listIds: [list], sendWelcomeEmail: true, trigger: true }),
+      }).catch(() => {});
+    }
     localStorage.setItem("veval_beta_access", JSON.stringify({ email: email.trim(), role, ts: Date.now() }));
     onAccess();
   }
@@ -1487,7 +1487,7 @@ export default function App() {
   // "loading" (Electron, awaiting config read) | "setup" (no key) | "ready"
   const [setupState, setSetupState] = useState(() => window.electronAPI ? "loading" : "ready");
   const [showSetup, setShowSetup] = useState(false);
-  const [gated, setGated] = useState(() => !!window.electronAPI || !!localStorage.getItem("veval_beta_access"));
+  const [gated, setGated] = useState(() => !!localStorage.getItem("veval_beta_access"));
   const [mode,setMode]=useState("address");
   const [address,setAddress]=useState("");
   const [lat,setLat]=useState("");const [lon,setLon]=useState("");const [siteLabel,setSiteLabel]=useState("");
