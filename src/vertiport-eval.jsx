@@ -1344,7 +1344,7 @@ function EmailGate({ onAccess }) {
 
       await fetch(`${apiUrl}&task=createOrUpdateUser`, {
         method: "POST", headers,
-        body: JSON.stringify({ email: email.trim(), name: firstName.trim(), active: 1, confirmed: 1, sendConf: false }),
+        body: JSON.stringify({ email: email.trim(), name: firstName.trim(), active: 1, confirmed: 1, sendConf: false, customFields: [{ id: 4, value: role }] }),
       }).catch(() => {});
 
       await fetch(`${apiUrl}&task=subscribeUsers`, {
@@ -1352,7 +1352,12 @@ function EmailGate({ onAccess }) {
         body: JSON.stringify({ emails: [email.trim()], listIds: [list], sendWelcomeEmail: true, trigger: true }),
       }).catch(() => {});
     }
-    localStorage.setItem("veval_beta_access", JSON.stringify({ email: email.trim(), role, ts: Date.now() }));
+    if (window.electronAPI) {
+      const cfg = await window.electronAPI.getConfig().catch(() => ({}));
+      await window.electronAPI.setConfig({ ...cfg, veval_beta_access: { email: email.trim(), role, ts: Date.now() } }).catch(() => {});
+    } else {
+      localStorage.setItem("veval_beta_access", JSON.stringify({ email: email.trim(), role, ts: Date.now() }));
+    }
     onAccess();
   }
 
@@ -1487,7 +1492,7 @@ export default function App() {
   // "loading" (Electron, awaiting config read) | "setup" (no key) | "ready"
   const [setupState, setSetupState] = useState(() => window.electronAPI ? "loading" : "ready");
   const [showSetup, setShowSetup] = useState(false);
-  const [gated, setGated] = useState(() => !!localStorage.getItem("veval_beta_access"));
+  const [gated, setGated] = useState(() => window.electronAPI ? false : !!localStorage.getItem("veval_beta_access"));
   const [mode,setMode]=useState("address");
   const [address,setAddress]=useState("");
   const [lat,setLat]=useState("");const [lon,setLon]=useState("");const [siteLabel,setSiteLabel]=useState("");
@@ -1507,6 +1512,7 @@ export default function App() {
     async function initKeys() {
       if (window.electronAPI) {
         const cfg = await window.electronAPI.getConfig();
+        if (cfg?.veval_beta_access) setGated(true);
         if (cfg?.apiKey) { setLlmConfig(cfg); setSetupState("ready"); }
         else { setSetupState("setup"); }
       } else {
