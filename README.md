@@ -12,10 +12,10 @@ Pre-built installers are also available on the [Releases page](https://github.co
 
 | Platform | File |
 |----------|------|
-| Windows | `Vertiport Eval Setup 0.1.0.exe` |
-| macOS | `Vertiport Eval-0.1.0-arm64.dmg` |
-| Linux (AppImage) | `Vertiport Eval-0.1.0.AppImage` |
-| Linux (Debian/Ubuntu) | `vertiport-eval_0.1.0_amd64.deb` |
+| Windows | `Vertiport Eval Setup 0.1.1.exe` |
+| macOS | `Vertiport Eval-0.1.1-arm64.dmg` |
+| Linux (AppImage) | `Vertiport Eval-0.1.1.AppImage` |
+| Linux (Debian/Ubuntu) | `vertiport-eval_0.1.1_amd64.deb` |
 
 > First time? See [BYOK_SETUP.md](./BYOK_SETUP.md) for API key setup instructions.
 
