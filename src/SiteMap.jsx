@@ -170,8 +170,8 @@ export default function SiteMap({ geocode, heliport, airspace }) {
 
     // Base layers
     const street = L.tileLayer(
-      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      { attribution: "&copy; OpenStreetMap contributors", maxZoom: 19 }
+      "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      { attribution: "&copy; OpenStreetMap contributors &copy; CARTO", maxZoom: 19 }
     );
     const satellite = L.tileLayer(
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
