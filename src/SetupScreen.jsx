@@ -8,11 +8,14 @@ const C = {
   text: "#444444", textBright: "#222222", textDim: "#999999", textLabel: "#5B9BD5",
 };
 
+// Default 3-provider list used by the free repo.
+// Pro repo overrides via the `providers` prop with PRO_PROVIDERS.
 const PROVIDERS = [
   {
     id: "anthropic",
     label: "Anthropic",
-    model: "Claude",
+    model: "claude-sonnet-4-6",
+    modelDisplay: "Claude Sonnet",
     hint: "Recommended. Get your key at console.anthropic.com",
     placeholder: "sk-ant-api03-…",
     docsUrl: "https://console.anthropic.com/settings/keys",
@@ -31,16 +34,14 @@ const PROVIDERS = [
           messages: [{ role: "user", content: "hi" }],
         }),
       });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`API ${r.status}: ${t.slice(0, 100)}`);
-      }
+      if (!r.ok) { const t = await r.text(); throw new Error(`API ${r.status}: ${t.slice(0, 100)}`); }
     },
   },
   {
     id: "openai",
     label: "OpenAI",
-    model: "GPT-4o",
+    model: "gpt-4o",
+    modelDisplay: "GPT-4o",
     hint: "Get your key at platform.openai.com",
     placeholder: "sk-proj-…",
     docsUrl: "https://platform.openai.com/api-keys",
@@ -48,34 +49,29 @@ const PROVIDERS = [
       const r = await fetch("https://api.openai.com/v1/models", {
         headers: { Authorization: `Bearer ${key}` },
       });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`API ${r.status}: ${t.slice(0, 100)}`);
-      }
+      if (!r.ok) { const t = await r.text(); throw new Error(`API ${r.status}: ${t.slice(0, 100)}`); }
     },
   },
   {
     id: "gemini",
     label: "Google Gemini",
-    model: "Gemini 2.0 Flash",
+    model: "gemini-2.0-flash",
+    modelDisplay: "Gemini 2.0 Flash",
     hint: "Get your key at aistudio.google.com",
     placeholder: "AIza…",
     docsUrl: "https://aistudio.google.com/app/apikey",
     validate: async (key) => {
-      const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`
-      );
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`API ${r.status}: ${t.slice(0, 100)}`);
-      }
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+      if (!r.ok) { const t = await r.text(); throw new Error(`API ${r.status}: ${t.slice(0, 100)}`); }
     },
   },
 ];
 
-export default function SetupScreen({ onComplete, currentConfig = null }) {
+export default function SetupScreen({ onComplete, currentConfig = null, providers: providersProp = null }) {
+  const PROVIDERS_LIST = providersProp || PROVIDERS;
+
   const [selectedProvider, setSelectedProvider] = useState(
-    currentConfig?.provider || "anthropic"
+    PROVIDERS_LIST.find(p => p.id === currentConfig?.provider)?.id || PROVIDERS_LIST[0]?.id || "anthropic"
   );
   const [apiKey, setApiKey] = useState(currentConfig?.apiKey || "");
   const [showKey, setShowKey] = useState(false);
@@ -84,7 +80,8 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
   const [status, setStatus] = useState("idle"); // idle | validating | ok | error
   const [errMsg, setErrMsg] = useState("");
 
-  const provider = PROVIDERS.find((p) => p.id === selectedProvider);
+  const provider = PROVIDERS_LIST.find(p => p.id === selectedProvider) || PROVIDERS_LIST[0];
+  const isGrid = PROVIDERS_LIST.length > 4;
 
   async function handleSave() {
     if (!apiKey.trim()) { setErrMsg("Enter your API key."); setStatus("error"); return; }
@@ -92,7 +89,13 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
     setErrMsg("");
     try {
       await provider.validate(apiKey.trim());
-      const cfg = { provider: selectedProvider, apiKey: apiKey.trim(), regridKey: regridKey.trim() || undefined };
+      const cfg = {
+        provider: selectedProvider,
+        apiKey: apiKey.trim(),
+        model: provider.model,
+        baseUrl: provider.baseUrl || undefined,
+        regridKey: regridKey.trim() || undefined,
+      };
       if (window.electronAPI) await window.electronAPI.setConfig(cfg);
       setStatus("ok");
       setTimeout(() => onComplete(cfg), 600);
@@ -135,13 +138,12 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
         </div>
       </div>
 
-      {/* Card */}
+      {/* Card — wider when using the 8-provider grid */}
       <div style={{
         background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12,
-        padding: "40px 48px", width: "100%", maxWidth: 520,
+        padding: "40px 48px", width: "100%", maxWidth: isGrid ? 580 : 520,
         boxShadow: "0 4px 24px rgba(0,0,0,0.07)",
       }}>
-
         <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, color: C.amberDim, letterSpacing: "0.2em", marginBottom: 10 }}>
           {currentConfig ? "CHANGE AI PROVIDER" : "FIRST LAUNCH · AI SETUP"}
         </div>
@@ -153,32 +155,60 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
           your own key — it stays on your machine and is never sent to any server.
         </p>
 
-        {/* Provider tabs */}
+        {/* Provider selector */}
         <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.amberDim, letterSpacing: "0.2em", marginBottom: 10 }}>
           AI PROVIDER
         </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 28 }}>
-          {PROVIDERS.map((p) => (
-            <button
-              key={p.id}
-              className="prov-tab"
-              onClick={() => { setSelectedProvider(p.id); setApiKey(""); setStatus("idle"); setErrMsg(""); }}
-              style={{
-                flex: 1, padding: "10px 6px", borderRadius: 8, cursor: "pointer",
-                border: `1px solid ${selectedProvider === p.id ? C.amber : C.border}`,
-                background: selectedProvider === p.id ? C.card : C.surface,
-                textAlign: "center",
-              }}
-            >
-              <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, fontWeight: 600, color: selectedProvider === p.id ? C.textBright : C.textDim, letterSpacing: "0.05em" }}>
-                {p.label}
-              </div>
-              <div style={{ fontFamily: "'IBM Plex Sans',sans-serif", fontSize: 10, color: C.textDim, marginTop: 3 }}>
-                {p.model}
-              </div>
-            </button>
-          ))}
-        </div>
+
+        {isGrid ? (
+          /* 4-column grid for 8 providers */
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 28 }}>
+            {PROVIDERS_LIST.map((p) => (
+              <button
+                key={p.id}
+                className="prov-tab"
+                onClick={() => { setSelectedProvider(p.id); setApiKey(""); setStatus("idle"); setErrMsg(""); }}
+                style={{
+                  padding: "8px 4px", borderRadius: 8, cursor: "pointer",
+                  border: `1px solid ${selectedProvider === p.id ? C.amber : C.border}`,
+                  background: selectedProvider === p.id ? C.card : C.surface,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, fontWeight: 600, color: selectedProvider === p.id ? C.textBright : C.textDim, letterSpacing: "0.03em", lineHeight: 1.3 }}>
+                  {p.label}
+                </div>
+                <div style={{ fontFamily: "'IBM Plex Sans',sans-serif", fontSize: 9, color: selectedProvider === p.id ? C.amberDim : C.textDim, marginTop: 3, lineHeight: 1.2 }}>
+                  {p.modelDisplay || p.model}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          /* Single-row flex for 3 providers */
+          <div style={{ display: "flex", gap: 8, marginBottom: 28 }}>
+            {PROVIDERS_LIST.map((p) => (
+              <button
+                key={p.id}
+                className="prov-tab"
+                onClick={() => { setSelectedProvider(p.id); setApiKey(""); setStatus("idle"); setErrMsg(""); }}
+                style={{
+                  flex: 1, padding: "10px 6px", borderRadius: 8, cursor: "pointer",
+                  border: `1px solid ${selectedProvider === p.id ? C.amber : C.border}`,
+                  background: selectedProvider === p.id ? C.card : C.surface,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, fontWeight: 600, color: selectedProvider === p.id ? C.textBright : C.textDim, letterSpacing: "0.05em" }}>
+                  {p.label}
+                </div>
+                <div style={{ fontFamily: "'IBM Plex Sans',sans-serif", fontSize: 10, color: C.textDim, marginTop: 3 }}>
+                  {p.modelDisplay || p.model}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Key input */}
         <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.amberDim, letterSpacing: "0.2em", marginBottom: 8 }}>
@@ -217,13 +247,13 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
         {/* Hint + docs link */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
           <span style={{ fontSize: 11, color: C.textDim }}>{provider.hint}</span>
-          <button className="docs-link" onClick={openDocs} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.textDim, letterSpacing: "0.1em", textDecoration: "underline" }}>
+          <button className="docs-link" onClick={openDocs} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.textDim, letterSpacing: "0.1em", textDecoration: "underline", flexShrink: 0, marginLeft: 12 }}>
             GET KEY
           </button>
         </div>
 
         {/* Divider */}
-        <div style={{ height: 1, background: C.border, margin: "28px 0 24px" }} />
+        <div style={{ height: 1, background: C.border, margin: "0 0 24px" }} />
 
         {/* Regrid optional key */}
         <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.amberDim, letterSpacing: "0.2em", marginBottom: 6 }}>
@@ -301,7 +331,7 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
           {status === "validating" ? "VALIDATING…" : status === "ok" ? "KEY VERIFIED ✓" : "VALIDATE & SAVE"}
         </button>
 
-        {/* Skip / cancel for returning users */}
+        {/* Cancel for returning users */}
         {currentConfig && (
           <button onClick={() => onComplete(currentConfig)} style={{ width: "100%", marginTop: 12, padding: "10px", background: "none", border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "'IBM Plex Mono',monospace", fontSize: 10, color: C.textDim, letterSpacing: "0.1em" }}>
             CANCEL

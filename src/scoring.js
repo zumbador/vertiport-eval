@@ -165,7 +165,7 @@ export function extractLLMJson(text) {
 
 export async function analyzeWithClaude(input, inputMode, evalMode = "passenger", llmConfig = null) {
   const cfg = llmConfig || { provider: "anthropic", apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY };
-  const { provider, apiKey } = cfg;
+  const { provider, apiKey, model, baseUrl } = cfg;
   if (!apiKey) throw new Error("No API key configured. Open Settings to add your key.");
 
   const prompt = buildPrompt(input, inputMode, evalMode);
@@ -175,20 +175,26 @@ export async function analyzeWithClaude(input, inputMode, evalMode = "passenger"
   try {
     let text;
 
-    if (provider === "openai") {
-      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    if (provider === "openai" || baseUrl) {
+      // OpenAI-compatible: OpenAI, Grok, DeepSeek, Llama (Groq), Qwen, Mistral
+      const endpoint = baseUrl
+        ? `${baseUrl.replace(/\/$/, "")}/chat/completions`
+        : "https://api.openai.com/v1/chat/completions";
+      const modelId = model || "gpt-4o";
+      const r = await fetch(endpoint, {
         method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-        body: JSON.stringify({ model:"gpt-4o", max_tokens:2000, temperature:0, messages:[{role:"user",content:prompt}] }),
+        body: JSON.stringify({ model: modelId, max_tokens: 2000, temperature: 0, messages: [{ role: "user", content: prompt }] }),
       });
       clearTimeout(timeout);
-      if (!r.ok) { const t=await r.text(); throw new Error(`OpenAI ${r.status}: ${t.slice(0,120)}`); }
+      if (!r.ok) { const t = await r.text(); throw new Error(`${provider || "API"} ${r.status}: ${t.slice(0, 120)}`); }
       const data = await r.json();
       text = data.choices?.[0]?.message?.content || "";
 
     } else if (provider === "gemini") {
+      const modelId = model || "gemini-2.0-flash";
       const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
         {
           method: "POST", signal: controller.signal,
           headers: { "Content-Type": "application/json" },
@@ -199,11 +205,13 @@ export async function analyzeWithClaude(input, inputMode, evalMode = "passenger"
         }
       );
       clearTimeout(timeout);
-      if (!r.ok) { const t=await r.text(); throw new Error(`Gemini ${r.status}: ${t.slice(0,120)}`); }
+      if (!r.ok) { const t = await r.text(); throw new Error(`Gemini ${r.status}: ${t.slice(0, 120)}`); }
       const data = await r.json();
       text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
     } else {
+      // Anthropic
+      const modelId = model || "claude-sonnet-4-6";
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST", signal: controller.signal,
         headers: {
@@ -212,20 +220,20 @@ export async function analyzeWithClaude(input, inputMode, evalMode = "passenger"
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true",
         },
-        body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:2000, temperature:0, messages:[{role:"user",content:prompt}] }),
+        body: JSON.stringify({ model: modelId, max_tokens: 2000, temperature: 0, messages: [{ role: "user", content: prompt }] }),
       });
       clearTimeout(timeout);
-      if (!r.ok) { const t=await r.text(); throw new Error(`API ${r.status}: ${t.slice(0,120)}`); }
+      if (!r.ok) { const t = await r.text(); throw new Error(`API ${r.status}: ${t.slice(0, 120)}`); }
       const data = await r.json();
-      if (data.error) throw new Error(data.error.message||"API error");
-      text = data.content?.find(b=>b.type==="text")?.text||"";
+      if (data.error) throw new Error(data.error.message || "API error");
+      text = data.content?.find(b => b.type === "text")?.text || "";
     }
 
     if (!text) throw new Error("Empty response from LLM");
     return extractLLMJson(text);
-  } catch(err) {
+  } catch (err) {
     clearTimeout(timeout);
-    if (err.name==="AbortError") throw new Error("Request timed out. Try again.");
+    if (err.name === "AbortError") throw new Error("Request timed out. Try again.");
     throw err;
   }
 }
@@ -396,7 +404,7 @@ export async function fetchHarrisParcelScore(lat, lon) {
 }
 
 // ── Shared parcel scoring helper ──────────────────────────────────
-function scoreParcelAcreage(acreage, source) {
+export function scoreParcelAcreage(acreage, source) {
   let score;
   if      (acreage >= 10)  score = 95;
   else if (acreage >= 5)   score = 85;
@@ -906,3 +914,4 @@ export function scoreAirspace(lat, lon) {
       : `${status} — good airspace environment. LAANC self-authorization available. Nearest: ${nearStr}.`,
   };
 }
+
