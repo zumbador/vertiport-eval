@@ -7,7 +7,6 @@ import { estimateFlyingDays } from './flyingDays.js';
 import { buildRegulatoryChecklist, CATEGORIES } from './regulatoryChecklist.js';
 import { buildInvestmentSummary } from './investmentViability.js';
 import SiteMap from './SiteMap.jsx';
-import SiteMap3D from './SiteMap3D.jsx';
 import {
   priorityIndex,
   getQuadrant,
@@ -1503,8 +1502,6 @@ export default function App() {
   const [previous,setPrevious]=useState(null);
   const [error,setError]=useState(null);
   const [pdfGenerating,setPdfGenerating]=useState(false);
-  const [mapView,setMapView]=useState("2d");
-  const [approachBearing,setApproachBearing]=useState(0);
   const [demandTab,setDemandTab]=useState("passenger");
   const [recentReports,setRecentReports]=useState(()=>{try{return JSON.parse(localStorage.getItem("veval_recent")||"[]");}catch{return [];}});
 
@@ -2010,23 +2007,9 @@ export default function App() {
               )}
 
 
-              {/* Map — 2D / 3D tab */}
+              {/* Map */}
               <div style={{marginBottom:20}}>
-                <div style={{display:"flex",gap:6,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
-                  <button onClick={()=>setMapView("2d")} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,letterSpacing:"0.18em",padding:"5px 14px",borderRadius:4,cursor:"pointer",border:`1px solid ${mapView==="2d"?C.amber:C.border}`,background:mapView==="2d"?C.amberGlow:"transparent",color:mapView==="2d"?C.amber:C.textDim}}>GROUND VIEW</button>
-                  <button onClick={()=>setMapView("3d")} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,letterSpacing:"0.18em",padding:"5px 14px",borderRadius:4,cursor:"pointer",border:`1px solid ${mapView==="3d"?C.amber:C.border}`,background:mapView==="3d"?C.amberGlow:"transparent",color:mapView==="3d"?C.amber:C.textDim}}>3D OBSTACLE SURFACES</button>
-                  {mapView==="3d"&&(<>
-                    <div style={{width:1,height:16,background:C.border,marginLeft:4}}/>
-                    <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim}}>APPROACH:</span>
-                    {[{label:"N/S",brg:0},{label:"NE/SW",brg:45},{label:"E/W",brg:90},{label:"NW/SE",brg:135}].map(({label,brg})=>(
-                      <button key={brg} onClick={()=>setApproachBearing(brg)} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,padding:"4px 10px",borderRadius:4,cursor:"pointer",border:`1px solid ${approachBearing===brg?C.amber:C.border}`,background:approachBearing===brg?C.amberGlow:"transparent",color:approachBearing===brg?C.amber:C.textDim}}>{label}</button>
-                    ))}
-                  </>)}
-                </div>
-                {mapView==="2d"
-                  ? <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace} onMapClick={phase!=="loading"?handleMapClick:undefined}/>
-                  : <SiteMap3D geocode={results.geocode} airspace={results.site?.airspace} approachBearing={approachBearing}/>
-                }
+                <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace} onMapClick={phase!=="loading"?handleMapClick:undefined}/>
               </div>
 
               <div style={{display:"flex",gap:12,justifyContent:"center"}}>
