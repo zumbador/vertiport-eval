@@ -561,6 +561,42 @@ export async function fetchTexasParcelScore(lat, lon) {
   ]);
 }
 
+// ── Regrid parcel score (BYOK — nationwide coverage) ──────────────
+export async function fetchRegridParcelScore(lat, lon, regridKey) {
+  const url = `https://app.regrid.com/api/v2/point?lat=${lat}&lon=${lon}&radius=0&limit=1&token=${encodeURIComponent(regridKey)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Regrid API ${res.status}`);
+  const json = await res.json();
+
+  const features = json?.parcels?.features;
+  if (!features?.length) throw new Error("Regrid: no parcel at this location");
+
+  const fields = features[0]?.properties?.fields;
+  if (!fields) throw new Error("Regrid: no fields in response");
+
+  const acreage = parseFloat(fields.ll_gisacre);
+  if (!acreage || acreage <= 0 || acreage > 50000) throw new Error("Regrid: invalid acreage");
+
+  const usedesc = (fields.usedesc || "").toLowerCase();
+  let land_type = "unknown";
+  if (/industrial|warehouse|storage|manufactur/.test(usedesc)) land_type = "industrial";
+  else if (/commercial|retail|office|hotel/.test(usedesc)) land_type = "commercial";
+  else if (/vacant|undeveloped|agricultural|farm|ranch/.test(usedesc)) land_type = "vacant";
+  else if (/residential/.test(usedesc)) land_type = "residential";
+
+  const { score, flags, notes, ac } = scoreParcelAcreage(acreage, "Regrid");
+  return {
+    score,
+    acreage_estimate: ac,
+    land_type,
+    notes,
+    flags,
+    _source: "Regrid",
+    _account: fields.parcelnumb || "",
+    _address: fields.address || "",
+  };
+}
+
 // ── FEMA NFHL + USGS 3DEP flood & elevation score ─────────────────
 export async function fetchFEMAFloodScore(lat, lon) {
   const [femaSettled, usgsSettled] = await Promise.allSettled([

@@ -79,6 +79,8 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
   );
   const [apiKey, setApiKey] = useState(currentConfig?.apiKey || "");
   const [showKey, setShowKey] = useState(false);
+  const [regridKey, setRegridKey] = useState(currentConfig?.regridKey || "");
+  const [showRegrid, setShowRegrid] = useState(false);
   const [status, setStatus] = useState("idle"); // idle | validating | ok | error
   const [errMsg, setErrMsg] = useState("");
 
@@ -90,7 +92,7 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
     setErrMsg("");
     try {
       await provider.validate(apiKey.trim());
-      const cfg = { provider: selectedProvider, apiKey: apiKey.trim() };
+      const cfg = { provider: selectedProvider, apiKey: apiKey.trim(), regridKey: regridKey.trim() || undefined };
       if (window.electronAPI) await window.electronAPI.setConfig(cfg);
       setStatus("ok");
       setTimeout(() => onComplete(cfg), 600);
@@ -217,6 +219,63 @@ export default function SetupScreen({ onComplete, currentConfig = null }) {
           <span style={{ fontSize: 11, color: C.textDim }}>{provider.hint}</span>
           <button className="docs-link" onClick={openDocs} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.textDim, letterSpacing: "0.1em", textDecoration: "underline" }}>
             GET KEY
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: C.border, margin: "28px 0 24px" }} />
+
+        {/* Regrid optional key */}
+        <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.amberDim, letterSpacing: "0.2em", marginBottom: 6 }}>
+          DATA APIS <span style={{ color: C.textDim, fontSize: 8 }}>— OPTIONAL</span>
+        </div>
+        <p style={{ fontSize: 12, color: C.textDim, lineHeight: 1.5, marginBottom: 14 }}>
+          Add a <strong style={{ color: C.text }}>Regrid</strong> token for nationwide parcel data.
+          Without a key the tool uses built-in Texas county coverage (Harris, Dallas, Tarrant, Travis, Bexar).
+        </p>
+        <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.amberDim, letterSpacing: "0.2em", marginBottom: 8 }}>
+          REGRID API TOKEN
+        </div>
+        <div style={{ position: "relative", marginBottom: 8 }}>
+          <input
+            type={showRegrid ? "text" : "password"}
+            value={regridKey}
+            onChange={(e) => setRegridKey(e.target.value)}
+            placeholder="(optional) paste your Regrid token here"
+            autoComplete="off"
+            spellCheck={false}
+            style={{
+              width: "100%", padding: "11px 48px 11px 14px",
+              fontFamily: "'IBM Plex Mono',monospace", fontSize: 12,
+              background: C.bg, border: `1px solid ${C.border}`,
+              borderRadius: 6, color: C.textBright, outline: "none",
+            }}
+          />
+          <button
+            className="key-toggle"
+            onClick={() => setShowRegrid((v) => !v)}
+            style={{
+              position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", cursor: "pointer",
+              fontFamily: "'IBM Plex Mono',monospace", fontSize: 9,
+              color: C.textDim, letterSpacing: "0.1em",
+            }}
+          >
+            {showRegrid ? "HIDE" : "SHOW"}
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+          <span style={{ fontSize: 11, color: C.textDim }}>Get a free token at app.regrid.com</span>
+          <button
+            className="docs-link"
+            onClick={() => {
+              const url = "https://app.regrid.com/api";
+              if (window.electronAPI) window.electronAPI.openExternal(url);
+              else window.open(url, "_blank", "noopener");
+            }}
+            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono',monospace", fontSize: 9, color: C.textDim, letterSpacing: "0.1em", textDecoration: "underline" }}
+          >
+            GET TOKEN
           </button>
         </div>
 

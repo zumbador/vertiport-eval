@@ -21,6 +21,7 @@ import {
   fetchEIAPowerScore,
   fetchNRELDERScore,
   fetchTexasParcelScore,
+  fetchRegridParcelScore,
   fetchFEMAFloodScore,
   fetchZoningScore,
   scoreAirspace,
@@ -1610,7 +1611,10 @@ export default function App() {
       const [eiaS,nrelS,hcadS,femaS,osmS]=await Promise.allSettled([
         fetchEIAPowerScore(base.geocode.lat,base.geocode.lon,siteData?.zoning?.score||50),
         fetchNRELDERScore(base.geocode.lat,base.geocode.lon),
-        fetchTexasParcelScore(base.geocode.lat,base.geocode.lon),
+        llmConfig?.regridKey
+          ? fetchRegridParcelScore(base.geocode.lat,base.geocode.lon,llmConfig.regridKey)
+              .catch(()=>fetchTexasParcelScore(base.geocode.lat,base.geocode.lon))
+          : fetchTexasParcelScore(base.geocode.lat,base.geocode.lon),
         fetchFEMAFloodScore(base.geocode.lat,base.geocode.lon),
         fetchZoningScore(base.geocode.lat,base.geocode.lon),
       ]);
