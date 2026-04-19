@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { US_HELIPORTS } from "./usHeliports.js";
@@ -145,9 +145,12 @@ function buildAirspaceLayer(map, siteLat, siteLon) {
 
 // ── Component ───────────────────────────────────────────────────
 
-export default function SiteMap({ geocode, heliport, airspace }) {
+export default function SiteMap({ geocode, heliport, airspace, onMapClick }) {
   const mapRef = useRef(null);
   const containerRef = useRef(null);
+  const onMapClickRef = useRef(onMapClick);
+  const [picking, setPicking] = useState(false);
+  useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
 
   const lat = geocode?.lat;
   const lon = geocode?.lon;
@@ -253,12 +256,23 @@ export default function SiteMap({ geocode, heliport, airspace }) {
       )
       .addTo(map);
 
+    // Map click → evaluate selected location
+    if (onMapClickRef.current) {
+      containerRef.current.style.cursor = "crosshair";
+      map.on("click", e => {
+        setPicking(true);
+        onMapClickRef.current(e.latlng.lat, e.latlng.lng).finally(() => setPicking(false));
+      });
+    }
+
     // Hint below layer control
     const hint = L.control({ position: "topright" });
     hint.onAdd = () => {
       const div = L.DomUtil.create("div");
       div.style.cssText = "background:rgba(255,255,255,0.92);padding:4px 10px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:8px;color:#888;line-height:1.4;max-width:150px;box-shadow:0 1px 3px rgba(0,0,0,0.1);margin-top:2px;";
-      div.innerHTML = "Click any airspace ring, heliport, or marker for details";
+      div.innerHTML = onMapClickRef.current
+        ? "Click anywhere on the map to evaluate that location"
+        : "Click any airspace ring, heliport, or marker for details";
       return div;
     };
     hint.addTo(map);
@@ -302,7 +316,14 @@ export default function SiteMap({ geocode, heliport, airspace }) {
           position: "relative",
         }}
       >
-        <div ref={containerRef} style={{ height: 440, width: "100%" }} />
+        <div ref={containerRef} style={{ height: 440, width: "100%", position: "relative" }} />
+        {picking && (
+          <div style={{ position:"absolute", top:0, left:0, right:0, bottom:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none", zIndex:1000 }}>
+            <div style={{ background:"rgba(255,255,255,0.88)", borderRadius:6, padding:"6px 14px", fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"#5B9BD5", boxShadow:"0 2px 8px rgba(0,0,0,0.1)" }}>
+              Locating…
+            </div>
+          </div>
+        )}
         {/* Legend */}
         <div
           style={{

@@ -1731,6 +1731,29 @@ export default function App() {
   function loadReport(r){setPrevious(results);setResults(r.results);setPhase("complete");setDemandTab(r.evalMode);setLog([]);setError(null);if(r.input.mode==="coords"){setMode("coords");setLat(String(r.input.lat));setLon(String(r.input.lon));setSiteLabel(r.input.label||"");}else{setMode("address");setAddress(r.input.address||"");}}
   function rerunReport(r){if(r.input.mode==="coords"){setMode("coords");setLat(String(r.input.lat));setLon(String(r.input.lon));setSiteLabel(r.input.label||"");}else{setMode("address");setAddress(r.input.address||"");}run(r.input);}
   function clearRecent(){setRecentReports([]);localStorage.removeItem("veval_recent");}
+  async function handleMapClick(clickLat, clickLon) {
+    let label = `${clickLat.toFixed(5)}, ${clickLon.toFixed(5)}`;
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${clickLat}&lon=${clickLon}`,
+        { headers: { "Accept-Language": "en-US,en" } }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        const a = d.address || {};
+        const street = [a.house_number, a.road].filter(Boolean).join(" ");
+        const city = a.city || a.town || a.village || a.county || "";
+        const state = a.state || "";
+        const parts = [street, city, state].filter(Boolean);
+        label = parts.length ? parts.join(", ") : d.display_name?.split(",").slice(0,3).join(",").trim() || label;
+      }
+    } catch {}
+    setMode("coords");
+    setLat(String(clickLat));
+    setLon(String(clickLon));
+    setSiteLabel(label);
+    run({ mode: "coords", lat: clickLat, lon: clickLon, label });
+  }
   function relativeTime(ts){const s=Math.floor((Date.now()-new Date(ts))/1000);if(s<60)return`${s}s ago`;if(s<3600)return`${Math.floor(s/60)}m ago`;if(s<86400)return`${Math.floor(s/3600)}h ago`;return`${Math.floor(s/86400)}d ago`;}
   const tabStyle=(active)=>({background:"transparent",border:`1px solid ${active?C.amber:C.border}`,color:active?C.amber:C.textLabel,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"6px 14px",borderRadius:4,cursor:"pointer",transition:"all 0.15s"});
   const inputStyle={background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textBright,fontFamily:"'IBM Plex Mono',monospace",fontSize:12,padding:"11px 14px"};
@@ -1997,7 +2020,7 @@ export default function App() {
                   </>)}
                 </div>
                 {mapView==="2d"
-                  ? <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace}/>
+                  ? <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace} onMapClick={phase!=="loading"?handleMapClick:undefined}/>
                   : <SiteMap3D geocode={results.geocode} airspace={results.site?.airspace} approachBearing={approachBearing}/>
                 }
               </div>
