@@ -395,6 +395,172 @@ export async function fetchHarrisParcelScore(lat, lon) {
   };
 }
 
+// ── Shared parcel scoring helper ──────────────────────────────────
+function scoreParcelAcreage(acreage, source) {
+  let score;
+  if      (acreage >= 10)  score = 95;
+  else if (acreage >= 5)   score = 85;
+  else if (acreage >= 2)   score = 67;
+  else if (acreage >= 1.5) score = 40;
+  else if (acreage >= 0.5) score = 30;
+  else                     score = 12;
+
+  const flags = [];
+  if (acreage < 1.5) flags.push("Below NREL 1.5-ac minimum");
+  if (acreage >= 1.5 && acreage < 2) flags.push("Marginal — verify usable footprint");
+
+  const ac = acreage >= 0.1 ? acreage.toFixed(2) : acreage.toFixed(3);
+  const notes = acreage >= 5
+    ? `${ac} ac (${source} live) — exceeds NREL minimum for fixed infrastructure`
+    : acreage >= 1.5
+    ? `${ac} ac (${source} live) — meets NREL 1.5-ac minimum, tight for phased expansion`
+    : `${ac} ac (${source} live) — below NREL 1.5-ac minimum for fixed vertiport`;
+
+  return { score, flags, notes, ac: parseFloat(ac) };
+}
+
+function arcgisParcelParams(lat, lon, fields) {
+  return new URLSearchParams({
+    geometry: JSON.stringify({ x: lon, y: lat }),
+    geometryType: "esriGeometryPoint",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    distance: "100",
+    units: "esriSRUnit_Meter",
+    outFields: fields,
+    returnGeometry: "false",
+    outSR: "4326",
+    f: "json",
+  });
+}
+
+// ── Dallas County parcel score (DCAD ArcGIS) ──────────────────────
+export async function fetchDallasParcelScore(lat, lon) {
+  const params = arcgisParcelParams(lat, lon, "PARCELID,SITEADDRESS,CLASSCD,CLASSDSCRP,USECD,USEDSCRP,Shape_Area");
+  const res = await fetch(
+    `https://maps.dcad.org/prdwa/rest/services/Property/ParcelQuery/MapServer/4/query?${params}`,
+    { signal: AbortSignal.timeout(15000) }
+  );
+  if (!res.ok) throw new Error(`DCAD API ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`DCAD: ${json.error.message || "API error"}`);
+  if (!json.features?.length) throw new Error("Outside Dallas County coverage — using estimate");
+
+  const attr = json.features[0].attributes;
+  const shapeArea = attr.Shape_Area ?? 0;
+  if (shapeArea <= 0) throw new Error("DCAD: no area data");
+
+  // Shape_Area in TX State Plane North Central (FIPS 4202) is sq ft
+  // Validate: reasonable parcel is 500 sqft–50M sqft (0.01–1150 ac)
+  let acreage = shapeArea / 43560;
+  if (acreage < 0.01 || acreage > 2000) throw new Error("DCAD: area out of range");
+
+  const { score, flags, notes, ac } = scoreParcelAcreage(acreage, "DCAD");
+  const land_type = attr.USEDSCRP || attr.CLASSDSCRP || (attr.CLASSCD ? `Class ${attr.CLASSCD}` : "Unknown");
+
+  return {
+    score, acreage_estimate: ac, land_type, notes, flags,
+    _source: "DCAD", _account: attr.PARCELID || "", _address: attr.SITEADDRESS || "",
+  };
+}
+
+// ── Tarrant County parcel score (TAD ArcGIS) ──────────────────────
+export async function fetchTarrantParcelScore(lat, lon) {
+  const params = arcgisParcelParams(lat, lon, "ACCOUNT,LAND_ACRES,LAND_SQFT,DESCR,SITUS_ADDR,STREET_NO,STREET_NAM");
+  const res = await fetch(
+    `https://mapit.tarrantcounty.com/arcgis/rest/services/Tax/TCProperty/MapServer/0/query?${params}`,
+    { signal: AbortSignal.timeout(15000) }
+  );
+  if (!res.ok) throw new Error(`TAD API ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`TAD: ${json.error.message || "API error"}`);
+  if (!json.features?.length) throw new Error("Outside Tarrant County coverage — using estimate");
+
+  const attr = json.features[0].attributes;
+  let acreage = attr.LAND_ACRES ?? (attr.LAND_SQFT > 0 ? attr.LAND_SQFT / 43560 : null);
+  if (!acreage || acreage <= 0) throw new Error("TAD: no area data");
+
+  const { score, flags, notes, ac } = scoreParcelAcreage(acreage, "TAD");
+  const street = [attr.STREET_NO, attr.STREET_NAM].filter(Boolean).join(" ");
+  const address = attr.SITUS_ADDR || street || "";
+
+  return {
+    score, acreage_estimate: ac, land_type: attr.DESCR || "Unknown", notes, flags,
+    _source: "TAD", _account: attr.ACCOUNT || "", _address: address,
+  };
+}
+
+// ── Travis County parcel score (TCAD ArcGIS) ──────────────────────
+export async function fetchTravisParcelScore(lat, lon) {
+  const params = arcgisParcelParams(lat, lon, "PROP_ID,tcad_acres,situs_num,situs_street,situs_address");
+  const res = await fetch(
+    `https://gis.traviscountytx.gov/server1/rest/services/Boundaries_and_Jurisdictions/TCAD_public/MapServer/0/query?${params}`,
+    { signal: AbortSignal.timeout(15000) }
+  );
+  if (!res.ok) throw new Error(`TCAD API ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`TCAD: ${json.error.message || "API error"}`);
+  if (!json.features?.length) throw new Error("Outside Travis County coverage — using estimate");
+
+  const attr = json.features[0].attributes;
+  const acreage = attr.tcad_acres ?? 0;
+  if (acreage <= 0) throw new Error("TCAD: no area data");
+
+  const { score, flags, notes, ac } = scoreParcelAcreage(acreage, "TCAD");
+  const street = [attr.situs_num, attr.situs_street].filter(Boolean).join(" ");
+  const address = attr.situs_address || street || "";
+
+  return {
+    score, acreage_estimate: ac, land_type: "Unknown", notes, flags,
+    _source: "TCAD", _account: String(attr.PROP_ID || ""), _address: address,
+  };
+}
+
+// ── Bexar County parcel score (BCAD ArcGIS) ───────────────────────
+export async function fetchBexarParcelScore(lat, lon) {
+  const params = arcgisParcelParams(lat, lon, "PropID,Acres,LglAcres,State_cd,PropUse,Situs,AddrLn1");
+  const res = await fetch(
+    `https://maps.bexar.org/arcgis/rest/services/Parcels/MapServer/0/query?${params}`,
+    { signal: AbortSignal.timeout(15000) }
+  );
+  if (!res.ok) throw new Error(`BCAD API ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`BCAD: ${json.error.message || "API error"}`);
+  if (!json.features?.length) throw new Error("Outside Bexar County coverage — using estimate");
+
+  const attr = json.features[0].attributes;
+  const acreage = attr.Acres ?? attr.LglAcres ?? 0;
+  if (acreage <= 0) throw new Error("BCAD: no area data");
+
+  const { score, flags, notes, ac } = scoreParcelAcreage(acreage, "BCAD");
+
+  const classMap = {
+    A: "Single family residential", B: "Multifamily residential",
+    C: "Vacant land", D: "Farm/ranch", E: "Agricultural",
+    F: "Commercial", G: "Mineral/oil", I: "Industrial",
+    J: "Utilities", L: "Commercial retail", S: "Special purpose",
+    X: "Exempt (government/institutional)",
+  };
+  const classCode = (attr.State_cd || "").charAt(0).toUpperCase();
+  const land_type = classMap[classCode] || attr.PropUse || (attr.State_cd ? `Class ${attr.State_cd}` : "Unknown");
+
+  return {
+    score, acreage_estimate: ac, land_type, notes, flags,
+    _source: "BCAD", _account: String(attr.PropID || ""), _address: attr.Situs || attr.AddrLn1 || "",
+  };
+}
+
+// ── Texas parcel score — tries all 5 counties in parallel ─────────
+export async function fetchTexasParcelScore(lat, lon) {
+  return Promise.any([
+    fetchHarrisParcelScore(lat, lon),
+    fetchDallasParcelScore(lat, lon),
+    fetchTarrantParcelScore(lat, lon),
+    fetchTravisParcelScore(lat, lon),
+    fetchBexarParcelScore(lat, lon),
+  ]);
+}
+
 // ── FEMA NFHL + USGS 3DEP flood & elevation score ─────────────────
 export async function fetchFEMAFloodScore(lat, lon) {
   const [femaSettled, usgsSettled] = await Promise.allSettled([

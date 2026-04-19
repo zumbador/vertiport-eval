@@ -20,7 +20,7 @@ import {
   analyzeWithClaude,
   fetchEIAPowerScore,
   fetchNRELDERScore,
-  fetchHarrisParcelScore,
+  fetchTexasParcelScore,
   fetchFEMAFloodScore,
   fetchZoningScore,
   scoreAirspace,
@@ -738,7 +738,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
 }
 
 // buildPrompt, extractLLMJson, analyzeWithClaude,
-// fetchEIAPowerScore, fetchNRELDERScore, fetchHarrisParcelScore,
+// fetchEIAPowerScore, fetchNRELDERScore, fetchTexasParcelScore,
 // fetchFEMAFloodScore, fetchZoningScore, scoreAirspace
 // — all imported from ./scoring.js
 
@@ -1603,14 +1603,14 @@ export default function App() {
       // ── Live APIs (shared) ─────────────────────────────────
       const eiaIdx=logs.length;  addL("EIA power grid → fetching...","running");
       const nrelIdx=logs.length; addL("NREL DER layer → fetching...","running");
-      const hcadIdx=logs.length; addL("Harris County parcel → fetching...","running");
+      const hcadIdx=logs.length; addL("TX parcel (5 counties) → fetching...","running");
       const femaIdx=logs.length; addL("FEMA NFHL + elevation → fetching...","running");
       const osmIdx=logs.length;  addL("OSM zoning → fetching...","running");
       const flags=[...(siteData?.parcel?.flags||[]),...(siteData?.airspace?.flags||[]),...(siteData?.zoning?.flags||[]),...(siteData?.soil?.flags||[])];
       const [eiaS,nrelS,hcadS,femaS,osmS]=await Promise.allSettled([
         fetchEIAPowerScore(base.geocode.lat,base.geocode.lon,siteData?.zoning?.score||50),
         fetchNRELDERScore(base.geocode.lat,base.geocode.lon),
-        fetchHarrisParcelScore(base.geocode.lat,base.geocode.lon),
+        fetchTexasParcelScore(base.geocode.lat,base.geocode.lon),
         fetchFEMAFloodScore(base.geocode.lat,base.geocode.lon),
         fetchZoningScore(base.geocode.lat,base.geocode.lon),
       ]);
@@ -1624,11 +1624,11 @@ export default function App() {
       if(nrel) setL(nrelIdx,`NREL → Community DER: ${nrel.score}/100`,"done");
       else     setL(nrelIdx,`NREL → ${nrelS.reason?.message||"fetch failed"}`,"warn");
       if(hcad){
-        setL(hcadIdx,`HCAD → Parcel: ${hcad.acreage_estimate} ac · score ${hcad.score}/100`,"done");
+        setL(hcadIdx,`${hcad._source} → Parcel: ${hcad.acreage_estimate} ac · score ${hcad.score}/100`,"done");
         const oldP=siteData?.parcel?.score||0;
         siteData.parcel={...siteData.parcel,...hcad};
         siteData.composite=Math.min(100,Math.round((siteData?.composite||0)-(oldP*0.25)+(hcad.score*0.25)));
-      } else setL(hcadIdx,`HCAD → ${hcadS.reason?.message||"fetch failed"}`,"warn");
+      } else setL(hcadIdx,`TX parcel → ${hcadS.reason?.message||"outside covered counties — using estimate"}`,"warn");
       if(fema){
         const elevNote=fema.elevation_ft!==null?` · ${fema.elevation_ft} ft elev`:"";
         setL(femaIdx,`FEMA → ${fema.flood_zone} · score ${fema.score}/100${elevNote}`,"done");
@@ -1653,7 +1653,7 @@ export default function App() {
       const nrelLive = nrel?._live || {};
       console.log("NREL utility:", nrelLive.utilityLive ? `live · ${nrel.score} pts` : "FALLBACK (national baseline)");
       console.log("NREL solar:",   nrelLive.solarLive   ? `live · GHI from API`      : "FALLBACK (national baseline)");
-      console.log("HCAD parcel:", hcad ? `live · ${hcad.acreage_estimate} ac · score ${hcad.score}` : `FALLBACK (LLM estimate) · ${hcadS.reason?.message||"no coverage"}`);
+      console.log("TX parcel:", hcad ? `${hcad._source} live · ${hcad.acreage_estimate} ac · score ${hcad.score}` : `FALLBACK (LLM estimate) · outside Harris/Dallas/Tarrant/Travis/Bexar`);
       if (fema) {
         const fs = fema._source || {};
         console.log("FEMA NFHL:",   fs.fema ? `live · ${fema.flood_zone} · score ${fema.score}` : `FALLBACK (estimate) · score ${fema.score}`);
