@@ -25,15 +25,7 @@ import {
   fetchFEMAFloodScore,
   fetchZoningScore,
   scoreAirspace,
-  polyCenter,
-  polyRadius,
-  pointInPolygon,
-  fetchRegridAreaParcels,
-  quickScoreParcel,
-  fetchHeatmapPois,
-  buildHeatmapGrid,
 } from './scoring.js';
-import BatchPanel from './BatchPanel.jsx';
 
 const C = {
   bg: "#F9F9F9", surface: "#FFFFFF", card: "#EAF4FC", border: "#d0dce8",
@@ -1515,8 +1507,6 @@ export default function App() {
   const [approachBearing,setApproachBearing]=useState(0);
   const [demandTab,setDemandTab]=useState("passenger");
   const [recentReports,setRecentReports]=useState(()=>{try{return JSON.parse(localStorage.getItem("veval_recent")||"[]");}catch{return [];}});
-  const [batchData,setBatchData]=useState(null);   // null | {loading} | {results,totalFound,screened} | {error}
-  const [heatmapCells,setHeatmapCells]=useState(null);
 
   // ── Load LLM config on mount ──────────────────────────────────
   useEffect(() => {
@@ -1767,43 +1757,6 @@ export default function App() {
     setLon(String(clickLon));
     setSiteLabel(label);
     run({ mode: "coords", lat: clickLat, lon: clickLon, label });
-  }
-  async function handleBatchPolygon(verts) {
-    setBatchData({ loading: true });
-    setHeatmapCells(null);
-    if (!llmConfig?.regridKey) {
-      setBatchData({ error: "Regrid API key required. Add your key in Settings (⚙) under DATA APIS." });
-      return;
-    }
-    try {
-      const center = polyCenter(verts);
-      const radiusM = polyRadius(center, verts) * 1.25;
-      const features = await fetchRegridAreaParcels(center[0], center[1], radiusM, llmConfig.regridKey, 200);
-      const totalFound = features.length;
-      const passed = [];
-      for (const f of features) {
-        const fields = f?.properties?.fields; if (!fields) continue;
-        const fLat = parseFloat(fields.ll_lat), fLon = parseFloat(fields.ll_lon);
-        if (!fLat || !fLon || !pointInPolygon(fLat, fLon, verts)) continue;
-        const r = quickScoreParcel(fields, fLat, fLon);
-        if (r) passed.push(r);
-      }
-      passed.sort((a, b) => b.siteEst - a.siteEst);
-      setBatchData({ results: passed, totalFound, screened: passed.length });
-    } catch (e) {
-      setBatchData({ error: e.message || "Batch scoring failed" });
-    }
-  }
-  async function handleHeatmapPolygon(verts) {
-    setHeatmapCells(null);
-    setBatchData(null);
-    try {
-      const pois = await fetchHeatmapPois(verts).catch(() => []);
-      const cells = buildHeatmapGrid(verts, pois, 7);
-      setHeatmapCells(cells);
-    } catch (e) {
-      console.error("Heatmap failed:", e);
-    }
   }
   function relativeTime(ts){const s=Math.floor((Date.now()-new Date(ts))/1000);if(s<60)return`${s}s ago`;if(s<3600)return`${Math.floor(s/60)}m ago`;if(s<86400)return`${Math.floor(s/3600)}h ago`;return`${Math.floor(s/86400)}d ago`;}
   const tabStyle=(active)=>({background:"transparent",border:`1px solid ${active?C.amber:C.border}`,color:active?C.amber:C.textLabel,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"6px 14px",borderRadius:4,cursor:"pointer",transition:"all 0.15s"});
@@ -2071,22 +2024,10 @@ export default function App() {
                   </>)}
                 </div>
                 {mapView==="2d"
-                  ? <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace} onMapClick={phase!=="loading"?handleMapClick:undefined} onBatchPolygon={phase!=="loading"?handleBatchPolygon:undefined} onHeatmapPolygon={phase!=="loading"?handleHeatmapPolygon:undefined} heatmapCells={heatmapCells}/>
+                  ? <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace} onMapClick={phase!=="loading"?handleMapClick:undefined}/>
                   : <SiteMap3D geocode={results.geocode} airspace={results.site?.airspace} approachBearing={approachBearing}/>
                 }
               </div>
-
-              {batchData && (
-                <BatchPanel
-                  loading={batchData.loading}
-                  error={batchData.error}
-                  results={batchData.results ?? null}
-                  totalFound={batchData.totalFound ?? 0}
-                  screened={batchData.screened ?? 0}
-                  onEvaluate={({lat,lon,address})=>run({mode:"coords",lat,lon,label:address})}
-                  onClear={()=>{setBatchData(null);setHeatmapCells(null);}}
-                />
-              )}
 
               <div style={{display:"flex",gap:12,justifyContent:"center"}}>
                 <button onClick={()=>run()} disabled={phase==="loading"} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 24px",borderRadius:6,cursor:"pointer"}}>RE-ANALYZE</button>
