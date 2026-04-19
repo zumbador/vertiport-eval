@@ -4,6 +4,13 @@ import "leaflet/dist/leaflet.css";
 import { US_HELIPORTS } from "./usHeliports.js";
 import { US_AIRSPACE, NM_TO_M } from "./usAirspace.js";
 
+const DRAW_BTN = {
+  fontFamily:"'IBM Plex Mono',monospace", fontSize:8, letterSpacing:"0.1em",
+  padding:"5px 10px", borderRadius:4, cursor:"pointer",
+  background:"rgba(255,255,255,0.96)", border:"1px solid #d0dce8",
+  color:"#5B9BD5", boxShadow:"0 1px 4px rgba(0,0,0,0.12)",
+};
+
 const HELIPORT_COLORS = {
   M: "#28c87a",
   I: "#20c0b0",
@@ -145,12 +152,49 @@ function buildAirspaceLayer(map, siteLat, siteLon) {
 
 // ── Component ───────────────────────────────────────────────────
 
-export default function SiteMap({ geocode, heliport, airspace, onMapClick }) {
+export default function SiteMap({ geocode, heliport, airspace, onMapClick, onBatchPolygon, onHeatmapPolygon, heatmapCells }) {
   const mapRef = useRef(null);
   const containerRef = useRef(null);
   const onMapClickRef = useRef(onMapClick);
   const [picking, setPicking] = useState(false);
+  const [drawMode, setDrawMode] = useState(null); // null | "batch" | "heatmap"
+  const [vertCount, setVertCount] = useState(0);
+  const drawActiveRef = useRef(false);
+  const drawModeRef = useRef(null);
+  const vertsRef = useRef([]);
+  const previewPolyRef = useRef(null);
+  const drawnLayersRef = useRef([]);
+  const heatLayerRef = useRef(null);
   useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
+
+  function startDraw(mode) {
+    drawActiveRef.current = true; drawModeRef.current = mode;
+    setDrawMode(mode); vertsRef.current = []; setVertCount(0);
+    if (mapRef.current) mapRef.current.getContainer().style.cursor = "crosshair";
+  }
+  function cancelDraw() {
+    drawActiveRef.current = false; drawModeRef.current = null;
+    setDrawMode(null); vertsRef.current = []; setVertCount(0);
+    if (previewPolyRef.current && mapRef.current) { mapRef.current.removeLayer(previewPolyRef.current); previewPolyRef.current = null; }
+    drawnLayersRef.current.forEach(l => { try { mapRef.current?.removeLayer(l); } catch {} });
+    drawnLayersRef.current = [];
+    if (mapRef.current) mapRef.current.getContainer().style.cursor = onMapClickRef.current ? "crosshair" : "";
+  }
+  function closePoly() {
+    const verts = [...vertsRef.current]; if (verts.length < 3) return;
+    if (previewPolyRef.current && mapRef.current) { mapRef.current.removeLayer(previewPolyRef.current); previewPolyRef.current = null; }
+    drawnLayersRef.current.forEach(l => { try { mapRef.current?.removeLayer(l); } catch {} });
+    drawnLayersRef.current = [];
+    if (mapRef.current) {
+      L.polygon(verts, { color: "#5B9BD5", fillColor: "#5B9BD5", fillOpacity: 0.15, weight: 2 }).addTo(mapRef.current);
+      mapRef.current.getContainer().style.cursor = onMapClickRef.current ? "crosshair" : "";
+    }
+    const mode = drawModeRef.current;
+    drawActiveRef.current = false; drawModeRef.current = null;
+    setDrawMode(null); setVertCount(0); vertsRef.current = [];
+    if (mode === "batch") onBatchPolygon?.(verts);
+    else if (mode === "heatmap") onHeatmapPolygon?.(verts);
+  }
 
   const lat = geocode?.lat;
   const lon = geocode?.lon;
@@ -256,14 +300,26 @@ export default function SiteMap({ geocode, heliport, airspace, onMapClick }) {
       )
       .addTo(map);
 
-    // Map click → evaluate selected location
-    if (onMapClickRef.current) {
-      containerRef.current.style.cursor = "crosshair";
-      map.on("click", e => {
+    // Map click — draw vertex or evaluate location
+    if (onMapClickRef.current) containerRef.current.style.cursor = "crosshair";
+    map.on("click", e => {
+      if (drawActiveRef.current) {
+        const v = [e.latlng.lat, e.latlng.lng];
+        const nv = [...vertsRef.current, v];
+        vertsRef.current = nv; setVertCount(nv.length);
+        const dot = L.circleMarker(v, { radius: 5, color: "#5B9BD5", fillColor: "#fff", fillOpacity: 1, weight: 2 });
+        dot.addTo(map); drawnLayersRef.current.push(dot);
+        if (previewPolyRef.current) map.removeLayer(previewPolyRef.current);
+        previewPolyRef.current = nv.length >= 2
+          ? L.polygon(nv, { color: "#5B9BD5", fillColor: "#5B9BD5", fillOpacity: 0.1, weight: 2, dashArray: "5,5" }).addTo(map)
+          : null;
+        return;
+      }
+      if (onMapClickRef.current) {
         setPicking(true);
         onMapClickRef.current(e.latlng.lat, e.latlng.lng).finally(() => setPicking(false));
-      });
-    }
+      }
+    });
 
     // Hint below layer control
     const hint = L.control({ position: "topright" });
@@ -285,12 +341,28 @@ export default function SiteMap({ geocode, heliport, airspace, onMapClick }) {
     }
 
     return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
+      drawActiveRef.current = false;
+      vertsRef.current = [];
+      previewPolyRef.current = null;
+      drawnLayersRef.current = [];
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
     };
   }, [lat, lon]);
+
+  // Heatmap overlay — re-apply when cells or map location changes
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (heatLayerRef.current) { try { mapRef.current.removeLayer(heatLayerRef.current); } catch {} heatLayerRef.current = null; }
+    if (!heatmapCells?.length) return;
+    const group = L.layerGroup();
+    heatmapCells.forEach(cell => {
+      L.rectangle(cell.bounds, { stroke: false, fillColor: cell.color, fillOpacity: 0.42 })
+        .bindTooltip(`Score ${cell.score}/100 · Air ${cell.airScore} · ${cell.poiCount} POIs`, { sticky: true })
+        .addTo(group);
+    });
+    heatLayerRef.current = group;
+    group.addTo(mapRef.current);
+  }, [heatmapCells, lat, lon]);
 
   if (!lat || !lon) return null;
 
@@ -322,6 +394,33 @@ export default function SiteMap({ geocode, heliport, airspace, onMapClick }) {
             <div style={{ background:"rgba(255,255,255,0.88)", borderRadius:6, padding:"6px 14px", fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:"#5B9BD5", boxShadow:"0 2px 8px rgba(0,0,0,0.1)" }}>
               Locating…
             </div>
+          </div>
+        )}
+        {/* Batch / Heatmap draw controls */}
+        {(onBatchPolygon || onHeatmapPolygon) && (
+          <div style={{ position:"absolute", bottom:50, left:10, zIndex:1000, display:"flex", flexDirection:"column", gap:4 }}>
+            {!drawMode ? (
+              <div style={{ display:"flex", gap:5 }}>
+                {onBatchPolygon && (
+                  <button onClick={()=>startDraw("batch")} style={DRAW_BTN}>SCORE PARCELS</button>
+                )}
+                {onHeatmapPolygon && (
+                  <button onClick={()=>startDraw("heatmap")} style={DRAW_BTN}>HEATMAP</button>
+                )}
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                <div style={{ background:"rgba(255,255,255,0.96)", borderRadius:4, padding:"5px 10px", fontFamily:"'IBM Plex Mono',monospace", fontSize:8, color:"#5B9BD5", boxShadow:"0 1px 4px rgba(0,0,0,0.12)", letterSpacing:"0.1em" }}>
+                  {drawMode==="batch"?"SCORE PARCELS":"HEATMAP"} — {vertCount<3?`add ${3-vertCount} more pt${3-vertCount===1?"":"s"}`:`${vertCount} pts · ready`}
+                </div>
+                <div style={{ display:"flex", gap:4 }}>
+                  {vertCount>=3 && (
+                    <button onClick={closePoly} style={{ ...DRAW_BTN, background:"#5B9BD5", color:"#fff", border:"none" }}>CLOSE POLYGON</button>
+                  )}
+                  <button onClick={cancelDraw} style={{ ...DRAW_BTN, color:"#C0392B", borderColor:"#C0392B" }}>CANCEL</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {/* Legend */}
