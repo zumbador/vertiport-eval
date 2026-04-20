@@ -12,12 +12,22 @@ Pre-built installers are also available on the [Releases page](https://github.co
 
 | Platform | File |
 |----------|------|
-| Windows | `Vertiport Eval Setup 0.1.1.exe` |
-| macOS | `Vertiport Eval-0.1.1-arm64.dmg` |
-| Linux (AppImage) | `Vertiport Eval-0.1.1.AppImage` |
-| Linux (Debian/Ubuntu) | `vertiport-eval_0.1.1_amd64.deb` |
+| Windows | `Vertiport Eval Setup 0.1.2.exe` |
+| macOS | `Vertiport Eval-0.1.2-arm64.dmg` |
+| Linux (AppImage) | `Vertiport Eval-0.1.2.AppImage` |
+| Linux (Debian/Ubuntu) | `vertiport-eval_0.1.2_amd64.deb` |
 
 > First time? See [BYOK_SETUP.md](./BYOK_SETUP.md) for API key setup instructions.
+
+---
+
+## What's New in v0.1.2
+
+- **Sidebar panel architecture** — navigation moved to a collapsible left sidebar with eight panels: Dashboard, Site Analysis, Infrastructure, Regulatory, Financial, Action Items, Map View, and Batch Scoring
+- **Dark mode** — toggle in the top bar, persists per session
+- **ProGate UI** — pro-only panels display a blurred upgrade prompt in the free build instead of being hidden
+- **Site picker dropdown** — recent sites accessible from the top bar without re-entering addresses
+- **Batch Scoring panel** — draw a polygon on the map to score multiple candidate parcels at once (pro feature, blurred in free build)
 
 ---
 
@@ -154,16 +164,19 @@ vertiport-eval/
 │   ├── main.cjs            # Electron main process, IPC, key storage
 │   └── preload.cjs         # contextBridge — window.electronAPI
 ├── src/
-│   ├── vertiport-eval.jsx  # Main application component
+│   ├── vertiport-eval.jsx  # Main app — sidebar layout, all 8 panels
 │   ├── SetupScreen.jsx     # BYOK first-launch screen
 │   ├── SiteMap.jsx         # 2D Leaflet map + FAA airspace overlay
 │   ├── SiteMap3D.jsx       # 3D Mapbox obstacle surface map
+│   ├── scoring.js          # Scoring logic (site, demand, PI)
 │   ├── usAirspace.js       # FAA Class B/C/D airport dataset (nationwide)
 │   ├── usHeliports.js      # 8,211 FAA NASR heliport records
 │   ├── flyingDays.js       # NOAA climate normals + IDW interpolation
 │   ├── investmentViability.js  # CAPEX / OPEX / NPV model
 │   ├── regulatoryChecklist.js  # FAA and local compliance checklist
 │   └── heliportLookup.js   # Haversine proximity + type scoring
+├── tests/
+│   └── scoring.test.js     # Vitest test suite
 ├── build/
 │   └── icon.png            # App icon (512×512)
 ├── .env.example            # Required environment variables
