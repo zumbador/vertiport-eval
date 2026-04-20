@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, createContext, useContext } from "react";
 import aamLogo from './assets/aam_logo.png';
 import SetupScreen from './SetupScreen.jsx';
 import { jsPDF } from "jspdf";
@@ -1486,7 +1486,813 @@ function LandingPage({ onStart }) {
   );
 }
 
-export default function App() {
+/* ═══════════════════════════════════════════════════════════════
+   SIDEBAR NAV + PANEL ARCHITECTURE
+   Theme tokens, context, and layout components live here.
+   All scoring/API logic stays inside App() below.
+═══════════════════════════════════════════════════════════════ */
+
+const LIGHT_T = {
+  sidebarBg:'#ffffff', sidebarBorder:'#e2e8f0',
+  navActiveBg:'rgba(91,155,213,0.09)', navActiveBorder:'rgba(91,155,213,0.22)',
+  navActiveColor:'#5B9BD5', navInactive:'#4b5563', navLabel:'#b0bec5',
+  topbarBg:'#ffffff', topbarBorder:'#e2e8f0',
+  mainBg:'#f0f4f8',
+  cardBg:'#ffffff', cardBorder:'#e2e8f0', cardShadow:'0 1px 3px rgba(0,0,0,0.06)',
+  textPrimary:'#0f172a', textSecondary:'#374151', textMuted:'#64748b', textHint:'#94a3b8',
+  divider:'#f1f5f9', inputBg:'#f8fafc',
+  pillBg:'#f1f5f9', logoText:'#0f172a', logoSub:'#94a3b8',
+  toggleBg:'#f1f5f9', toggleColor:'#64748b',
+};
+const DARK_T = {
+  sidebarBg:'#0a1628', sidebarBorder:'#1a3a5c',
+  navActiveBg:'rgba(6,182,212,0.12)', navActiveBorder:'rgba(6,182,212,0.22)',
+  navActiveColor:'#06b6d4', navInactive:'#94a3b8', navLabel:'#2a4a6c',
+  topbarBg:'#0f2137', topbarBorder:'#1a3a5c',
+  mainBg:'#060e1a',
+  cardBg:'#0f2137', cardBorder:'#1a3a5c', cardShadow:'0 1px 4px rgba(0,0,0,0.3)',
+  textPrimary:'#f1f5f9', textSecondary:'#e2e8f0', textMuted:'#94a3b8', textHint:'#475569',
+  divider:'#1a3a5c', inputBg:'#0a1628',
+  pillBg:'#1a3a5c', logoText:'#f1f5f9', logoSub:'#4a6fa5',
+  toggleBg:'#1a3a5c', toggleColor:'#94a3b8',
+};
+const tok = t => t === 'dark' ? DARK_T : LIGHT_T;
+
+const AppCtx = createContext({});
+const useApp = () => useContext(AppCtx);
+
+/* ─── PRO GATE ────────────────────────────────── */
+function ProGate({ isPro, children }) {
+  if (isPro) return children;
+  return (
+    <div style={{ position:'relative' }}>
+      <div style={{ filter:'blur(3px)', opacity:0.4, pointerEvents:'none', userSelect:'none' }}>
+        {children}
+      </div>
+      <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center',
+                    justifyContent:'center', borderRadius:8 }}>
+        <div style={{ textAlign:'center', padding:'20px 28px', background:'rgba(255,255,255,0.96)',
+                      border:'1px solid #e2e8f0', borderRadius:10,
+                      boxShadow:'0 4px 20px rgba(0,0,0,0.08)' }}>
+          <div style={{ fontSize:22, marginBottom:8 }}>🔒</div>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, fontWeight:700,
+                        color:C.amber, letterSpacing:'0.15em', marginBottom:6 }}>PRO FEATURE</div>
+          <div style={{ fontSize:12, color:C.textDim, lineHeight:1.5 }}>
+            Available in the Desktop Analyst plan
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── SITE PICKER (sidebar dropdown) ──────────── */
+function SitePicker() {
+  const { results, recentReports, loadReport, setActivePanel, theme } = useApp();
+  const T = tok(theme);
+  const [open, setOpen] = useState(false);
+  const siteName = results?.geocode?.matched || 'No site loaded';
+  const siteScore = results?.site?.composite;
+
+  return (
+    <div style={{ padding:'10px 12px', borderBottom:`1px solid ${T.sidebarBorder}`, position:'relative' }}>
+      <div onClick={() => recentReports.length && setOpen(o => !o)}
+        style={{ cursor: recentReports.length ? 'pointer' : 'default',
+                 background:T.inputBg, borderRadius:8, padding:'10px 12px',
+                 border:`1px solid ${T.sidebarBorder}` }}>
+        <div style={{ fontSize:9, color:T.navLabel, fontWeight:700, textTransform:'uppercase',
+                      letterSpacing:'0.08em', marginBottom:4,
+                      fontFamily:"'IBM Plex Mono',monospace" }}>ACTIVE SITE</div>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:T.textPrimary, whiteSpace:'nowrap',
+                          overflow:'hidden', textOverflow:'ellipsis',
+                          fontFamily:"'IBM Plex Mono',monospace" }}>{siteName}</div>
+            {results && <div style={{ fontSize:9, color:T.textMuted, marginTop:1 }}>Current session</div>}
+          </div>
+          {siteScore != null && (
+            <div style={{ flexShrink:0, background:T.cardBg, border:`1px solid ${T.cardBorder}`,
+                          borderRadius:6, padding:'4px 8px', textAlign:'center' }}>
+              <div style={{ fontSize:8, color:T.textHint,
+                            fontFamily:"'IBM Plex Mono',monospace" }}>SCORE</div>
+              <div style={{ fontSize:13, fontWeight:800, color:scoreColor(siteScore),
+                            fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{siteScore}</div>
+            </div>
+          )}
+          {recentReports.length > 0 && (
+            <span style={{ fontSize:10, color:T.textHint,
+                           transform:open?'rotate(180deg)':'none',
+                           transition:'transform 0.15s', flexShrink:0 }}>▾</span>
+          )}
+        </div>
+      </div>
+      {open && (
+        <div style={{ position:'absolute', top:'calc(100% - 2px)', left:12, right:12,
+                      background:T.sidebarBg, border:`1px solid ${T.sidebarBorder}`,
+                      borderRadius:'0 0 9px 9px', zIndex:200,
+                      boxShadow:'0 8px 24px rgba(0,0,0,0.14)',
+                      maxHeight:260, overflowY:'auto' }}>
+          {recentReports.map(r => (
+            <div key={r.id}
+              onClick={() => { loadReport(r); setOpen(false); setActivePanel('dashboard'); }}
+              style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px',
+                       cursor:'pointer', borderBottom:`1px solid ${T.divider}` }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:T.textPrimary, overflow:'hidden',
+                              textOverflow:'ellipsis', whiteSpace:'nowrap',
+                              fontFamily:"'IBM Plex Mono',monospace" }}>{r.display}</div>
+                <div style={{ fontSize:9, color:T.textMuted, marginTop:1 }}>{r.evalMode||'passenger'}</div>
+              </div>
+              <div style={{ fontSize:11, fontWeight:700, color:scoreColor(r.scores?.site),
+                            fontFamily:"'IBM Plex Mono',monospace", flexShrink:0 }}>
+                {r.scores?.site}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── SIDEBAR ─────────────────────────────────── */
+function VESSidebar({ isPro }) {
+  const { activePanel, setActivePanel, theme, setTheme, results,
+          pdfGenerating, handleDownloadPDF, llmConfig, setShowSetup } = useApp();
+  const T = tok(theme);
+
+  const siteScore = results?.site?.composite;
+  const regItems = results?.modes?.passenger?.regulatory || [];
+  const critCount = regItems.filter(i => i.urgency === 'critical').length;
+  const flagCount = results?.flags?.length || 0;
+
+  const panels = [
+    { id:'dashboard',      label:'Dashboard',      icon:'⊞',  badge:null, bc:null, proOnly:false },
+    { id:'site',           label:'Site Analysis',  icon:'📍', badge:siteScore!=null?String(siteScore):null, bc:null, proOnly:false },
+    { id:'infrastructure', label:'Infrastructure', icon:'🏗️', badge:null, bc:null, proOnly:false },
+    { id:'regulatory',     label:'Regulatory',     icon:'🛡️', badge:critCount>0?String(critCount):null, bc:'#dc2626', proOnly:false },
+    { id:'financial',      label:'Financial',      icon:'💰', badge:null, bc:null, proOnly:true },
+    { id:'actions',        label:'Action Items',   icon:'✅', badge:flagCount>0?String(flagCount):null, bc:'#d97706', proOnly:true },
+    { id:'map',            label:'Map View',       icon:'🗺️', badge:null, bc:null, proOnly:false },
+  ];
+
+  return (
+    <div style={{ width:228, background:T.sidebarBg, display:'flex', flexDirection:'column',
+                  flexShrink:0, borderRight:`1px solid ${T.sidebarBorder}`, height:'100vh',
+                  fontFamily:"'IBM Plex Sans',sans-serif" }}>
+      {/* Logo */}
+      <div style={{ padding:'16px 16px 14px', borderBottom:`1px solid ${T.sidebarBorder}` }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <img src={aamLogo} alt="LAE" style={{ width:34, height:34, objectFit:'contain', flexShrink:0 }}/>
+          <div>
+            <div style={{ fontFamily:"'Orbitron',monospace", fontWeight:900, fontSize:13,
+                          color:T.logoText, letterSpacing:'0.1em' }}>VES</div>
+            <div style={{ fontSize:9, fontWeight:600, color:T.logoSub,
+                          fontFamily:"'IBM Plex Mono',monospace",
+                          letterSpacing:'0.08em' }}>VERTIPORT EVAL</div>
+          </div>
+          {!isPro && (
+            <span style={{ marginLeft:'auto', fontSize:8, fontFamily:"'IBM Plex Mono',monospace",
+                           color:C.amber, background:'rgba(91,155,213,0.1)',
+                           border:'1px solid rgba(91,155,213,0.2)', borderRadius:3,
+                           padding:'2px 6px', letterSpacing:'0.05em', flexShrink:0 }}>FREE</span>
+          )}
+        </div>
+      </div>
+
+      <SitePicker/>
+
+      <nav style={{ padding:'8px', flex:1, overflowY:'auto' }}>
+        <div style={{ fontSize:9, color:T.navLabel, fontWeight:700, textTransform:'uppercase',
+                      letterSpacing:'0.1em', padding:'6px 10px 4px',
+                      fontFamily:"'IBM Plex Mono',monospace" }}>NAVIGATION</div>
+        {panels.map(n => {
+          const on = activePanel === n.id;
+          return (
+            <button key={n.id} onClick={() => setActivePanel(n.id)}
+              style={{ width:'100%', display:'flex', alignItems:'center', gap:9, padding:'8px 10px',
+                       borderRadius:8, marginBottom:1,
+                       background:on ? T.navActiveBg : 'transparent',
+                       border:on ? `1px solid ${T.navActiveBorder}` : '1px solid transparent',
+                       color:on ? T.navActiveColor : T.navInactive, cursor:'pointer',
+                       fontSize:13, fontWeight:on?700:500, textAlign:'left',
+                       transition:'background 0.13s, color 0.13s',
+                       fontFamily:"'IBM Plex Sans',sans-serif" }}>
+              <span style={{ fontSize:15 }}>{n.icon}</span>
+              <span style={{ flex:1 }}>{n.label}</span>
+              {n.proOnly && !isPro && (
+                <span style={{ fontSize:8, fontFamily:"'IBM Plex Mono',monospace", color:C.amber,
+                               background:'rgba(91,155,213,0.1)',
+                               border:'1px solid rgba(91,155,213,0.2)',
+                               borderRadius:3, padding:'1px 5px' }}>PRO</span>
+              )}
+              {n.badge && (
+                <span style={{ fontSize:10, fontWeight:800,
+                               background:n.bc ? n.bc+'22' : T.pillBg,
+                               color:n.bc || T.textHint, padding:'1px 6px', borderRadius:10,
+                               border:`1px solid ${n.bc ? n.bc+'44' : T.sidebarBorder}`,
+                               fontFamily:"'IBM Plex Mono',monospace" }}>
+                  {n.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div style={{ padding:'10px 12px', borderTop:`1px solid ${T.sidebarBorder}`,
+                    display:'flex', flexDirection:'column', gap:8 }}>
+        {results && (
+          <button onClick={handleDownloadPDF} disabled={pdfGenerating}
+            style={{ width:'100%', padding:'8px 12px', background:'#5B9BD5', border:'none',
+                     borderRadius:8, color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer',
+                     fontFamily:"'IBM Plex Mono',monospace", letterSpacing:'0.08em',
+                     opacity:pdfGenerating ? 0.6 : 1 }}>
+            📄 {pdfGenerating ? 'GENERATING…' : 'EXPORT PDF'}
+          </button>
+        )}
+        <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 10px', borderRadius:8,
+                   border:`1px solid ${T.sidebarBorder}`, background:T.toggleBg,
+                   color:T.toggleColor, fontSize:12, fontWeight:600, cursor:'pointer',
+                   width:'100%', fontFamily:"'IBM Plex Sans',sans-serif" }}>
+          <span style={{ fontSize:14 }}>{theme === 'dark' ? '☀️' : '🌙'}</span>
+          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+        </button>
+        {window.electronAPI && (
+          <button onClick={() => setShowSetup(true)}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 8px', borderRadius:7,
+                     border:`1px solid ${T.sidebarBorder}`, background:'none',
+                     color:T.toggleColor, fontSize:10, cursor:'pointer', width:'100%',
+                     fontFamily:"'IBM Plex Mono',monospace", letterSpacing:'0.08em' }}>
+            ⚙ {llmConfig?.provider?.toUpperCase() || 'SETUP'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── TOP BAR ─────────────────────────────────── */
+const CRUMBS_MAP = {
+  dashboard:'Dashboard', site:'Site Analysis', infrastructure:'Infrastructure',
+  regulatory:'Regulatory', financial:'Financial', actions:'Action Items', map:'Map View',
+};
+
+function VESTopBar() {
+  const { activePanel, results, phase, theme } = useApp();
+  const T = tok(theme);
+  const live = phase === 'loading';
+  const hasData = !!results;
+  return (
+    <div style={{ height:50, background:T.topbarBg, borderBottom:`1px solid ${T.topbarBorder}`,
+                  display:'flex', alignItems:'center', padding:'0 24px', gap:12, flexShrink:0 }}>
+      <span style={{ fontSize:11, color:T.textHint,
+                     fontFamily:"'IBM Plex Mono',monospace" }}>VES</span>
+      <span style={{ color:T.textHint }}>›</span>
+      <span style={{ fontSize:14, fontWeight:700, color:T.textPrimary,
+                     fontFamily:"'IBM Plex Sans',sans-serif" }}>{CRUMBS_MAP[activePanel]}</span>
+      <div style={{ flex:1 }}/>
+      {results?.geocode?.matched && (
+        <span style={{ fontSize:11, color:T.textMuted, fontFamily:"'IBM Plex Mono',monospace",
+                       maxWidth:240, overflow:'hidden', textOverflow:'ellipsis',
+                       whiteSpace:'nowrap' }}>{results.geocode.matched}</span>
+      )}
+      <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:T.textMuted,
+                    background:T.inputBg, padding:'4px 10px', borderRadius:20,
+                    border:`1px solid ${T.sidebarBorder}`,
+                    fontFamily:"'IBM Plex Mono',monospace" }}>
+        <div style={{ width:6, height:6, borderRadius:'50%',
+                      background:live ? '#f59e0b' : hasData ? '#22c55e' : '#94a3b8' }}/>
+        {live ? 'ANALYZING…' : hasData ? 'LIVE DATA' : 'NO SITE LOADED'}
+      </div>
+    </div>
+  );
+}
+
+/* ─── NO-DATA PLACEHOLDER ─────────────────────── */
+function NoPanelData({ onGo }) {
+  return (
+    <div style={{ height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ textAlign:'center', padding:40 }}>
+        <div style={{ fontSize:32, marginBottom:16 }}>📡</div>
+        <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:12, color:C.textLabel,
+                      marginBottom:16 }}>No site loaded — run an analysis first.</div>
+        <button onClick={onGo}
+          style={{ background:'transparent', border:`1px solid ${C.amber}`, color:C.amber,
+                   fontFamily:"'IBM Plex Mono',monospace", fontSize:10, letterSpacing:'0.2em',
+                   padding:'10px 24px', borderRadius:6, cursor:'pointer' }}>
+          GO TO DASHBOARD →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── RECENT REPORTS PANEL ─────────────────────── */
+function RecentReportsPanel({ compact }) {
+  const { recentReports, loadReport, rerunReport, clearRecent, phase, theme } = useApp();
+  const T = tok(theme);
+  if (!recentReports.length) return null;
+  function relativeTime(ts){const s=Math.floor((Date.now()-new Date(ts))/1000);if(s<60)return`${s}s ago`;if(s<3600)return`${Math.floor(s/60)}m ago`;if(s<86400)return`${Math.floor(s/3600)}h ago`;return`${Math.floor(s/86400)}d ago`;}
+  return (
+    <div style={{ border:`1px solid ${T.cardBorder}`, borderRadius:8, overflow:'hidden',
+                  maxWidth: compact ? undefined : 700 }}>
+      <div style={{ padding:'9px 16px', background:T.cardBg,
+                    borderBottom:`1px solid ${T.cardBorder}`,
+                    display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+                       letterSpacing:'0.2em', color:T.textMuted }}>RECENT REPORTS</span>
+        <button onClick={clearRecent}
+          style={{ background:'none', border:'none', cursor:'pointer',
+                   fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+                   color:T.textHint, letterSpacing:'0.1em' }}>CLEAR ALL</button>
+      </div>
+      {recentReports.slice(0, compact ? 3 : 10).map(r => {
+        const q = getQuadrant(r.scores.site, r.scores.demand);
+        const btnBase = { fontFamily:"'IBM Plex Mono',monospace", fontSize:9, letterSpacing:'0.12em',
+                          padding:'5px 10px', borderRadius:4, cursor:'pointer',
+                          border:`1px solid ${T.cardBorder}` };
+        return (
+          <div key={r.id}
+            style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px',
+                     borderBottom:`1px solid ${T.cardBorder}`, background:T.inputBg }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, color:T.textPrimary,
+                            overflow:'hidden', textOverflow:'ellipsis',
+                            whiteSpace:'nowrap' }}>{r.display}</div>
+              <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+                             color:q.color }}>{q.label}</span>
+            </div>
+            <div style={{ display:'flex', gap:6, whiteSpace:'nowrap', flexShrink:0 }}>
+              {[['S',r.scores.site],['D',r.scores.demand],['PI',r.scores.pi]].map(([lbl,val]) => (
+                <div key={lbl} style={{ background:T.cardBg, border:`1px solid ${T.cardBorder}`,
+                                        borderRadius:4, padding:'4px 9px', display:'flex',
+                                        flexDirection:'column', alignItems:'center', gap:1 }}>
+                  <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:8,
+                                 color:T.textHint }}>{lbl}</span>
+                  <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:13,
+                                 fontWeight:600, color:scoreColor(val), lineHeight:1 }}>{val}</span>
+                </div>
+              ))}
+            </div>
+            <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+                           color:T.textHint, whiteSpace:'nowrap' }}>{relativeTime(r.ts)}</span>
+            <button onClick={() => loadReport(r)}
+              style={{ ...btnBase, background:T.cardBg, color:T.textMuted }}>LOAD</button>
+            <button onClick={() => rerunReport(r)}
+              style={{ ...btnBase, background:'transparent', color:C.amber, borderColor:C.amber }}
+              disabled={phase === 'loading'}>{phase === 'loading' ? '…' : 'RE-RUN'}</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── PANEL: DASHBOARD ─────────────────────────── */
+function DashboardPanel({ isPro }) {
+  const { results, phase, log, error, mode, setMode, address, setAddress,
+          lat, setLat, lon, setLon, siteLabel, setSiteLabel, run, reset,
+          demandTab, setDemandTab, recentReports, theme, setActivePanel } = useApp();
+  const T = tok(theme);
+  const canRun = phase !== 'loading' && (
+    mode === 'address' ? address.trim().length > 0 : parseCoords(lat, lon) !== null
+  );
+  const inputStyle = { background:T.inputBg, border:`1px solid ${T.sidebarBorder}`,
+                        borderRadius:6, color:T.textPrimary,
+                        fontFamily:"'IBM Plex Mono',monospace", fontSize:12,
+                        padding:'11px 14px', width:'100%' };
+  const tabSty = (active) => ({
+    background:'transparent',
+    border:`1px solid ${active ? C.amber : T.sidebarBorder}`,
+    color:active ? C.amber : T.textMuted,
+    fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+    letterSpacing:'0.12em', padding:'6px 14px', borderRadius:4, cursor:'pointer',
+  });
+
+  if (phase === 'complete' && results) {
+    const siteScore = results.site?.composite || 0;
+    const mData = results.modes?.[demandTab] || {};
+    const demandScore = mData.demand?.composite || 0;
+    const pi = priorityIndex(siteScore, demandScore);
+    const q = getQuadrant(siteScore, demandScore);
+    const demandSubLabel = { passenger:'passenger draw', cargo:'cargo & logistics',
+                              combo:'cargo + passenger' }[demandTab] || 'demand';
+    return (
+      <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+        {/* Demand mode tabs */}
+        <div style={{ display:'flex', gap:6, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                        letterSpacing:'0.2em', marginRight:8, flexShrink:0 }}>EVALUATION MODE:</div>
+          {[{id:'passenger',label:'PASSENGER'},{id:'cargo',label:'CARGO'},{id:'combo',label:'CARGO+PAX'}].map(m => {
+            const mDemand = results.modes?.[m.id]?.demand?.composite || 0;
+            const mPI = priorityIndex(siteScore, mDemand);
+            const active = demandTab === m.id;
+            return (
+              <button key={m.id} onClick={() => setDemandTab(m.id)}
+                style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:8, letterSpacing:'0.12em',
+                         padding:'7px 16px', borderRadius:4, cursor:'pointer',
+                         border:`1px solid ${active ? C.amber : T.sidebarBorder}`,
+                         background:active ? C.amberGlow : 'transparent',
+                         color:active ? C.amber : T.textMuted, transition:'all 0.15s' }}>
+                {m.label} · D:{mDemand} · PI:{mPI}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Score hero */}
+        <div style={{ display:'flex', gap:20, background:T.cardBg, border:`1px solid ${T.cardBorder}`,
+                      borderRadius:12, padding:'22px 24px', marginBottom:20, flexWrap:'wrap',
+                      boxShadow:T.cardShadow }}>
+          <QuadrantPlot site={siteScore} demand={demandScore}
+                        previousSite={null} previousDemand={null}/>
+          <div style={{ flex:1, minWidth:240 }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                          letterSpacing:'0.2em', marginBottom:8 }}>DUAL-AXIS ASSESSMENT</div>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:13,
+                          color:T.textPrimary, marginBottom:3 }}>{results.geocode.matched}</div>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10,
+                          color:C.textLabel, marginBottom:14 }}>
+              {results.geocode.lat?.toFixed(5)}°N · {Math.abs(results.geocode.lon)?.toFixed(5)}°W
+            </div>
+            <div style={{ display:'flex', gap:10, marginBottom:14 }}>
+              <ScorePill label="SITE SCORE" score={siteScore} sub="infrastructure viability"/>
+              <ScorePill label="DEMAND SCORE" score={demandScore} sub={demandSubLabel}/>
+              <ScorePill label="PRIORITY INDEX" score={pi} sub="composite score"/>
+            </div>
+            <div style={{ padding:'10px 14px', background:`${q.color}0e`,
+                          border:`1px solid ${q.color}33`, borderRadius:6, marginBottom:12 }}>
+              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, fontWeight:600,
+                            color:q.color, marginBottom:6, letterSpacing:'0.1em' }}>{q.label}</div>
+              <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:12,
+                            color:T.textSecondary, lineHeight:1.5 }}>{getSiteDesc(siteScore)}</div>
+              <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:12,
+                            color:T.textSecondary, lineHeight:1.5,
+                            marginTop:4 }}>{getDemandDesc(demandScore, demandTab)}</div>
+            </div>
+            {mData.summary && (
+              <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:12,
+                            color:T.textSecondary, lineHeight:1.65, marginBottom:10,
+                            paddingLeft:12, borderLeft:`2px solid ${T.cardBorder}` }}>
+                {mData.summary}
+              </div>
+            )}
+            {mData.development_thesis && (
+              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:C.amber,
+                            marginBottom:12, lineHeight:1.5 }}>▶ {mData.development_thesis}</div>
+            )}
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:16 }}>
+              {(mData.top_strengths||[]).map((s,i) => (
+                <span key={i} style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+                                       color:C.green, background:'rgba(26,138,88,0.09)',
+                                       border:'1px solid rgba(26,138,88,0.25)',
+                                       borderRadius:3, padding:'3px 9px' }}>✓ {s}</span>
+              ))}
+              {(mData.top_concerns||[]).filter(Boolean).map((s,i) => (
+                <span key={i} style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+                                       color:C.yellow, background:'rgba(200,122,16,0.09)',
+                                       border:'1px solid rgba(200,122,16,0.25)',
+                                       borderRadius:3, padding:'3px 9px' }}>⚑ {s}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Section nav cards */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
+          {[
+            { id:'site', label:'Site Analysis', icon:'📍', score:results.site?.composite, sub:'Parcel · Airspace · Zoning · Flood' },
+            { id:'infrastructure', label:'Infrastructure', icon:'🏗️', score:results.eia?.score, sub:'Power Grid · DER · Flying Days' },
+            { id:'regulatory', label:'Regulatory', icon:'🛡️', score:null, sub:'FAA · Environmental · Local' },
+          ].map(s => (
+            <div key={s.id} onClick={() => setActivePanel(s.id)}
+              style={{ background:T.cardBg, border:`1px solid ${T.cardBorder}`, borderRadius:10,
+                       padding:16, cursor:'pointer', boxShadow:T.cardShadow,
+                       transition:'box-shadow 0.15s, transform 0.13s' }}>
+              <div style={{ display:'flex', justifyContent:'space-between',
+                            alignItems:'flex-start', marginBottom:8 }}>
+                <div>
+                  <div style={{ fontSize:9, color:T.textHint, fontWeight:700,
+                                textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:3,
+                                fontFamily:"'IBM Plex Mono',monospace" }}>{s.icon} {s.label}</div>
+                  <div style={{ fontSize:11, color:T.textMuted }}>{s.sub}</div>
+                </div>
+                {s.score != null && (
+                  <div style={{ fontSize:24, fontWeight:900, color:scoreColor(s.score),
+                                fontFamily:"'IBM Plex Mono',monospace", lineHeight:1 }}>{s.score}</div>
+                )}
+              </div>
+              <div style={{ fontSize:12, color:C.amber, fontWeight:700,
+                            fontFamily:"'IBM Plex Mono',monospace" }}>View details →</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display:'flex', gap:10, marginBottom:24 }}>
+          <button onClick={() => run()} disabled={phase === 'loading'}
+            style={{ background:'transparent', border:`1px solid ${C.amber}`, color:C.amber,
+                     fontFamily:"'IBM Plex Mono',monospace", fontSize:9, letterSpacing:'0.2em',
+                     padding:'10px 24px', borderRadius:6, cursor:'pointer' }}>RE-ANALYZE</button>
+          <button onClick={reset}
+            style={{ background:'transparent', border:`1px solid ${T.sidebarBorder}`,
+                     color:T.textMuted, fontFamily:"'IBM Plex Mono',monospace", fontSize:9,
+                     letterSpacing:'0.2em', padding:'10px 24px', borderRadius:6,
+                     cursor:'pointer' }}>NEW SITE</button>
+        </div>
+
+        {recentReports.length > 0 && <RecentReportsPanel compact/>}
+      </div>
+    );
+  }
+
+  // Idle / loading / error — show input form
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <div style={{ maxWidth:700, marginBottom:24 }}>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:20, fontWeight:800, color:T.textPrimary, marginBottom:6,
+                        fontFamily:"'Orbitron',monospace", letterSpacing:'0.05em' }}>
+            Evaluate a site
+          </div>
+          <div style={{ fontSize:13, color:T.textMuted,
+                        fontFamily:"'IBM Plex Sans',sans-serif" }}>
+            Enter an address or GPS coordinates to run the two-axis scoring model.
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+          <button style={tabSty(mode === 'address')} onClick={() => setMode('address')}>ADDRESS INPUT</button>
+          <button style={tabSty(mode === 'coords')} onClick={() => setMode('coords')}>GPS COORDINATES</button>
+        </div>
+        {mode === 'address' ? (
+          <>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                          letterSpacing:'0.2em', marginBottom:8 }}>SITE ADDRESS</div>
+            <div style={{ display:'flex', gap:10, marginBottom:8 }}>
+              <input value={address} onChange={e => setAddress(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && canRun && run()}
+                placeholder="Street address — any US city"
+                style={{ ...inputStyle, flex:1 }}/>
+              <button onClick={() => run()} disabled={!canRun}
+                style={{ background:'transparent', border:`1px solid ${C.amber}`, color:C.amber,
+                         fontFamily:"'IBM Plex Mono',monospace", fontSize:10, letterSpacing:'0.2em',
+                         padding:'11px 22px', borderRadius:6, cursor:'pointer',
+                         opacity:!canRun ? 0.4 : 1, whiteSpace:'nowrap' }}>
+                {phase === 'loading' ? 'RUNNING…' : 'ANALYZE'}
+              </button>
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 16px' }}>
+              <span style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11, color:T.textMuted }}>Try:</span>
+              {ADDR_EXAMPLES.map(ex => (
+                <span key={ex} onClick={() => setAddress(ex)}
+                  style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10,
+                           color:C.amber, cursor:'pointer' }}>{ex.split(',')[0]}</span>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                          letterSpacing:'0.2em', marginBottom:8 }}>GPS COORDINATES (DECIMAL DEGREES)</div>
+            <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:8 }}>
+              <input value={lat} onChange={e => setLat(e.target.value)} placeholder="Latitude (29.7079)"
+                style={{ ...inputStyle, flex:1, minWidth:130 }}/>
+              <input value={lon} onChange={e => setLon(e.target.value)} placeholder="Longitude (-95.4010)"
+                style={{ ...inputStyle, flex:1, minWidth:150 }}/>
+              <input value={siteLabel} onChange={e => setSiteLabel(e.target.value)}
+                placeholder="Site name (optional)"
+                style={{ ...inputStyle, flex:1, minWidth:130 }}/>
+              <button onClick={() => run()} disabled={!canRun}
+                style={{ background:'transparent', border:`1px solid ${C.amber}`, color:C.amber,
+                         fontFamily:"'IBM Plex Mono',monospace", fontSize:10, letterSpacing:'0.2em',
+                         padding:'11px 22px', borderRadius:6, cursor:'pointer',
+                         opacity:!canRun ? 0.4 : 1, whiteSpace:'nowrap' }}>
+                {phase === 'loading' ? 'RUNNING…' : 'ANALYZE'}
+              </button>
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 16px' }}>
+              <span style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11, color:T.textMuted }}>Try:</span>
+              {COORD_EXAMPLES.map(ex => (
+                <span key={ex.label}
+                  onClick={() => { setLat(ex.lat); setLon(ex.lon); setSiteLabel(ex.label); }}
+                  style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10,
+                           color:C.amber, cursor:'pointer' }}>{ex.label}</span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {log.length > 0 && (
+        <div style={{ background:T.cardBg, border:`1px solid ${T.cardBorder}`, borderRadius:8,
+                      padding:'14px 18px', marginBottom:24, maxWidth:700,
+                      boxShadow:T.cardShadow }}>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                        letterSpacing:'0.2em', marginBottom:10 }}>ANALYSIS LOG</div>
+          {log.map((item, i) => <LogLine key={i} msg={item.msg} s={item.s}/>)}
+          {phase === 'loading' && (
+            <div style={{ display:'flex', gap:10, padding:'4px 0', color:C.amber,
+                          fontFamily:"'IBM Plex Mono',monospace", fontSize:11, marginTop:2 }}>
+              <span>●</span><span>Contacting AI API...</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {phase === 'error' && (
+        <div style={{ background:'rgba(192,57,43,0.06)', border:'1px solid rgba(192,57,43,0.3)',
+                      borderRadius:8, padding:'14px 18px', marginBottom:24, maxWidth:700 }}>
+          <div style={{ color:C.red, fontFamily:"'IBM Plex Mono',monospace",
+                        fontSize:11, marginBottom:8 }}>ERROR — {error}</div>
+          <button onClick={() => run()}
+            style={{ background:'transparent', border:`1px solid ${C.red}`, color:C.red,
+                     fontFamily:"'IBM Plex Mono',monospace", fontSize:9, letterSpacing:'0.15em',
+                     padding:'7px 16px', borderRadius:4, cursor:'pointer' }}>RETRY</button>
+        </div>
+      )}
+
+      {recentReports.length > 0 && <RecentReportsPanel/>}
+    </div>
+  );
+}
+
+/* ─── PANEL: SITE ANALYSIS ─────────────────────── */
+function SitePanel() {
+  const { results, demandTab, theme, setActivePanel } = useApp();
+  const T = tok(theme);
+  if (!results) return <NoPanelData onGo={() => setActivePanel('dashboard')}/>;
+  const mData = results.modes?.[demandTab] || {};
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                    letterSpacing:'0.2em', marginBottom:14 }}>SITE SCORE — INFRASTRUCTURE CRITERIA</div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:24 }}>
+        <SiteCard label="Parcel" icon="▣" score={results.site?.parcel?.score}
+          notes={results.site?.parcel?.notes}
+          details={{ "Acreage":results.site?.parcel?.acreage_estimate?`~${results.site.parcel.acreage_estimate} ac`:null, "Type":results.site?.parcel?.land_type }}/>
+        <SiteCard label="FAA Airspace" icon="✈" score={results.site?.airspace?.score}
+          notes={results.site?.airspace?.notes}
+          details={{ "Class":results.site?.airspace?.status, "Airport":results.site?.airspace?.nearest_airport, "LAANC":results.site?.airspace?.laanc_required?"Required":"Not required" }}/>
+        <SiteCard label="Power Grid & DER" icon="⚡" score={results.eia?.score??null}
+          pending={!results.eia} notes={results.eia?.notes} details={results.eia?.details}/>
+        <SiteCard label="Zoning" icon="◈" score={results.site?.zoning?.score}
+          notes={results.site?.zoning?.notes}
+          details={{ "Compliance":results.site?.zoning?.compliance, "Use":results.site?.zoning?.land_use }}/>
+        <SiteCard label="Soil & Flood" icon="⬡" score={results.site?.soil?.score}
+          notes={results.site?.soil?.notes}
+          details={{ "Flood":results.site?.soil?.flood_zone, "Slope":results.site?.soil?.slope_estimate, "Elev":results.site?.soil?.elevation_ft?`${results.site.soil.elevation_ft} ft`:null }}/>
+        <SiteCard label="DER Support" icon="◉" score={results.nrel?.score??null}
+          pending={!results.nrel} notes={results.nrel?.notes} details={results.nrel?.details}/>
+      </div>
+      <HeliportModifier heli={results.heliport}/>
+      <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                    letterSpacing:'0.2em', marginBottom:10 }}>{DEMAND_HEADER[demandTab]}</div>
+      <div style={{ background:T.cardBg, border:`1px solid ${T.cardBorder}`, borderRadius:8,
+                    padding:'18px 20px', marginBottom:20, boxShadow:T.cardShadow }}>
+        {DEMAND_CRITERIA[demandTab].map(cr => (
+          <DemandRow key={cr.key} label={cr.label} icon={cr.icon}
+            score={mData.demand?.[cr.key]?.score || 0}
+            notes={mData.demand?.[cr.key]?.notes}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── PANEL: INFRASTRUCTURE ─────────────────────── */
+function InfrastructurePanel() {
+  const { results, theme, setActivePanel } = useApp();
+  if (!results) return <NoPanelData onGo={() => setActivePanel('dashboard')}/>;
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <FlyingDaysPanel data={results.flyingDays}/>
+    </div>
+  );
+}
+
+/* ─── PANEL: REGULATORY ─────────────────────────── */
+function RegulatoryPanel() {
+  const { results, demandTab, theme, setActivePanel } = useApp();
+  const T = tok(theme);
+  if (!results) return <NoPanelData onGo={() => setActivePanel('dashboard')}/>;
+  const mData = results.modes?.[demandTab] || {};
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <RegulatoryChecklist items={mData.regulatory}/>
+      {results.flags?.length > 0 && (
+        <div style={{ marginBottom:20, background:'rgba(240,160,48,0.04)',
+                      border:'1px solid rgba(240,160,48,0.18)', borderRadius:8,
+                      padding:'14px 18px' }}>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                        letterSpacing:'0.2em', marginBottom:10 }}>FLAGS — ITEMS REQUIRING INVESTIGATION</div>
+          {results.flags.map((flag,i) => (
+            <div key={i} style={{ display:'flex', gap:10, padding:'6px 0',
+                                   borderTop:i>0?`1px solid ${T.cardBorder}`:'none',
+                                   fontFamily:"'IBM Plex Sans',sans-serif", fontSize:12,
+                                   color:C.yellow, lineHeight:1.55 }}>
+              <span style={{ flexShrink:0 }}>⚑</span><span>{flag}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── PANEL: FINANCIAL (PRO) ─────────────────────── */
+function FinancialPanel({ isPro }) {
+  const { results, demandTab, setActivePanel } = useApp();
+  if (!results) return <NoPanelData onGo={() => setActivePanel('dashboard')}/>;
+  const mData = results.modes?.[demandTab] || {};
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <ProGate isPro={isPro}>
+        <InvestmentPanel data={mData.investment}/>
+      </ProGate>
+    </div>
+  );
+}
+
+/* ─── PANEL: ACTIONS (PRO) ─────────────────────── */
+function ActionsPanel({ isPro }) {
+  const { results, demandTab, theme, setActivePanel } = useApp();
+  const T = tok(theme);
+  if (!results) return <NoPanelData onGo={() => setActivePanel('dashboard')}/>;
+  const mData = results.modes?.[demandTab] || {};
+  const regItems = mData.regulatory || [];
+  const priority = regItems.filter(i => i.urgency === 'critical' || i.urgency === 'high');
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <ProGate isPro={isPro}>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                        letterSpacing:'0.2em', marginBottom:12 }}>PRIORITY ACTION ITEMS</div>
+          {priority.length === 0 ? (
+            <div style={{ color:C.green, fontFamily:"'IBM Plex Mono',monospace", fontSize:11 }}>
+              ✓ No critical or high-urgency items for this site.
+            </div>
+          ) : priority.map((item,i) => (
+            <div key={item.id||i}
+              style={{ background:T.cardBg, border:`1px solid ${T.cardBorder}`,
+                       borderRadius:8, padding:'12px 16px', marginBottom:8,
+                       boxShadow:T.cardShadow }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:4 }}>
+                <div style={{ width:8, height:8, borderRadius:'50%', flexShrink:0,
+                               background:item.urgency==='critical'?C.red:C.yellow }}/>
+                <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11,
+                               fontWeight:700, color:T.textPrimary }}>{item.title}</span>
+              </div>
+              <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:8,
+                            color:C.amberDim, marginBottom:4 }}>
+                {item.authority} · {item.citation}
+              </div>
+              <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11,
+                            color:T.textMuted, lineHeight:1.5 }}>{item.notes}</div>
+            </div>
+          ))}
+        </div>
+        {results.flags?.length > 0 && (
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                          letterSpacing:'0.2em', marginBottom:10 }}>DATA FLAGS</div>
+            {results.flags.map((flag,i) => (
+              <div key={i}
+                style={{ display:'flex', gap:10, padding:'8px 12px', marginBottom:6,
+                         background:'rgba(240,160,48,0.06)',
+                         border:'1px solid rgba(240,160,48,0.18)',
+                         borderRadius:6, fontFamily:"'IBM Plex Sans',sans-serif",
+                         fontSize:12, color:C.yellow }}>
+                <span>⚑</span><span>{flag}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </ProGate>
+    </div>
+  );
+}
+
+/* ─── PANEL: MAP ─────────────────────────────────── */
+function MapPanel() {
+  const { results, phase, handleMapClick, setActivePanel } = useApp();
+  if (!results) return <NoPanelData onGo={() => setActivePanel('dashboard')}/>;
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <SiteMap geocode={results.geocode} heliport={results.heliport}
+               airspace={results.site?.airspace}
+               onMapClick={phase !== 'loading' ? handleMapClick : undefined}/>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   APP — all state and API logic lives here; new sidebar layout
+   wraps around the panel components defined above.
+   isPro=false  → free build (pro panels show ProGate overlay)
+   isPro=true   → private fork / paid desktop build
+═══════════════════════════════════════════════════════════════ */
+export default function App({ isPro = false }) {
   // ── All hooks first — Rules of Hooks ─────────────────────────
   const [llmConfig, setLlmConfig] = useState(null);
   // "loading" (Electron, awaiting config read) | "setup" (no key) | "ready"
@@ -1504,6 +2310,8 @@ export default function App() {
   const [pdfGenerating,setPdfGenerating]=useState(false);
   const [demandTab,setDemandTab]=useState("passenger");
   const [recentReports,setRecentReports]=useState(()=>{try{return JSON.parse(localStorage.getItem("veval_recent")||"[]");}catch{return [];}});
+  const [activePanel, setActivePanel] = useState('dashboard');
+  const [theme, setTheme] = useState('light');
 
   // ── Load LLM config on mount ──────────────────────────────────
   useEffect(() => {
@@ -1755,276 +2563,50 @@ export default function App() {
     setSiteLabel(label);
     run({ mode: "coords", lat: clickLat, lon: clickLon, label });
   }
-  function relativeTime(ts){const s=Math.floor((Date.now()-new Date(ts))/1000);if(s<60)return`${s}s ago`;if(s<3600)return`${Math.floor(s/60)}m ago`;if(s<86400)return`${Math.floor(s/3600)}h ago`;return`${Math.floor(s/86400)}d ago`;}
-  const tabStyle=(active)=>({background:"transparent",border:`1px solid ${active?C.amber:C.border}`,color:active?C.amber:C.textLabel,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"6px 14px",borderRadius:4,cursor:"pointer",transition:"all 0.15s"});
-  const inputStyle={background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.textBright,fontFamily:"'IBM Plex Mono',monospace",fontSize:12,padding:"11px 14px"};
+  const ctxValue = {
+    activePanel, setActivePanel, theme, setTheme, isPro,
+    results, phase, log, error,
+    mode, setMode, address, setAddress,
+    lat, setLat, lon, setLon, siteLabel, setSiteLabel,
+    run, reset,
+    demandTab, setDemandTab,
+    recentReports, loadReport, rerunReport, clearRecent,
+    handleDownloadPDF, pdfGenerating,
+    llmConfig, setShowSetup,
+    handleMapClick,
+  };
+  const T = tok(theme);
 
   return (
-    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'IBM Plex Sans',sans-serif"}}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&family=Orbitron:wght@700;900&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0;}
-        input::placeholder{color:${C.textDim};}
-        input:focus{outline:none!important;border-color:${C.amber}!important;box-shadow:0 0 0 2px ${C.amberGlow}!important;}
-        .run-btn,.pdf-btn{transition:all 0.18s ease;}
-        .run-btn:hover:not(:disabled){background:${C.amber}!important;color:${C.bg}!important;box-shadow:0 0 24px ${C.amberGlow};}
-        .pdf-btn:hover:not(:disabled){background:${C.green}!important;color:${C.surface}!important;box-shadow:0 0 20px rgba(26,138,88,0.25);}
-        .ex:hover{color:${C.amber}!important;}
-        .log-row{animation:fadeIn 0.25s ease;}
-        @keyframes fadeIn{from{opacity:0;transform:translateX(-4px);}to{opacity:1;transform:translateX(0);}}
-        .blink{animation:blink 1.1s ease-in-out infinite;}
-        @keyframes blink{0%,100%{opacity:1;}50%{opacity:0.3;}}
-        ::-webkit-scrollbar{width:3px;}::-webkit-scrollbar-track{background:${C.surface};}::-webkit-scrollbar-thumb{background:${C.border};}
-      `}</style>
-
-      <div style={{maxWidth:920,margin:"0 auto",padding:"32px 20px 60px"}}>
-
-        {/* Header */}
-        <div style={{marginBottom:36,paddingBottom:24,borderBottom:`1px solid ${C.border}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
-            <img src={aamLogo} alt="LAE logo" style={{width:44,height:44,objectFit:"contain",flexShrink:0}}/>
-            <div>
-              <div style={{fontFamily:"'Orbitron',monospace",fontSize:20,fontWeight:900,color:C.textBright,letterSpacing:"0.2em"}}>VERTIPORT</div>
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.amberDim,letterSpacing:"0.25em",marginTop:2}}>SITE EVALUATION SYSTEM</div>
-            </div>
-            <div style={{marginLeft:"auto",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,letterSpacing:"0.15em"}}>LOWALTITUDEECONOMY.AERO</div>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <div className="blink" style={{width:6,height:6,borderRadius:"50%",background:C.green,boxShadow:`0 0 8px ${C.green}`}}/>
-                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em"}}>NATIONWIDE BETA</span>
-              </div>
-              {window.electronAPI && (
-                <button onClick={()=>setShowSetup(true)} title="AI Provider Settings"
-                  style={{marginTop:4,background:"none",border:`1px solid ${C.border}`,borderRadius:5,cursor:"pointer",
-                    padding:"3px 8px",fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim,
-                    letterSpacing:"0.1em",display:"flex",alignItems:"center",gap:5}}>
-                  <span style={{fontSize:11}}>⚙</span> {llmConfig?.provider?.toUpperCase()||"SETUP"}
-                </button>
-              )}
-            </div>
+    <AppCtx.Provider value={ctxValue}>
+      <div style={{ display:'flex', height:'100vh', overflow:'hidden',
+                    fontFamily:"'IBM Plex Sans',sans-serif" }}>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&family=Orbitron:wght@700;900&display=swap');
+          *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+          html, body, #root { height:100%; }
+          input::placeholder { color:${C.textDim}; }
+          input:focus { outline:none !important; border-color:${C.amber} !important; }
+          ::-webkit-scrollbar { width:4px; }
+          ::-webkit-scrollbar-track { background:transparent; }
+          ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:10px; }
+          button { font-family:inherit; }
+        `}</style>
+        <VESSidebar isPro={isPro}/>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden',
+                      background:T.mainBg }}>
+          <VESTopBar/>
+          <div style={{ flex:1, overflow:'hidden' }}>
+            {activePanel === 'dashboard'      && <DashboardPanel isPro={isPro}/>}
+            {activePanel === 'site'           && <SitePanel/>}
+            {activePanel === 'infrastructure' && <InfrastructurePanel/>}
+            {activePanel === 'regulatory'     && <RegulatoryPanel/>}
+            {activePanel === 'financial'      && <FinancialPanel isPro={isPro}/>}
+            {activePanel === 'actions'        && <ActionsPanel isPro={isPro}/>}
+            {activePanel === 'map'            && <MapPanel/>}
           </div>
-          <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.textLabel,paddingLeft:58}}>
-            FAA/NREL-calibrated · Site + Demand two-axis scoring · Priority Index · PDF report export
-          </div>
-        </div>
-
-        {/* Input */}
-        <div style={{marginBottom:28}}>
-          <div style={{display:"flex",gap:8,marginBottom:14}}>
-            <button style={tabStyle(mode==="address")} onClick={()=>setMode("address")}>ADDRESS INPUT</button>
-            <button style={tabStyle(mode==="coords")} onClick={()=>setMode("coords")}>GPS COORDINATES</button>
-          </div>
-          {mode==="address"?(
-            <>
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:8}}>SITE ADDRESS</div>
-              <div style={{display:"flex",gap:10}}>
-                <input value={address} onChange={e=>setAddress(e.target.value)} onKeyDown={e=>e.key==="Enter"&&canRun&&run()} placeholder="Street address — Houston metro area" style={{...inputStyle,flex:1}}/>
-                <button className="run-btn" onClick={()=>run()} disabled={!canRun} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,letterSpacing:"0.2em",padding:"11px 22px",borderRadius:6,cursor:"pointer",opacity:!canRun?0.4:1,whiteSpace:"nowrap"}}>{phase==="loading"?"RUNNING...":"ANALYZE"}</button>
-              </div>
-              <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:"4px 16px"}}>
-                <span style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:11,color:C.textLabel}}>Try:</span>
-                {ADDR_EXAMPLES.map(ex=><span key={ex} className="ex" onClick={()=>setAddress(ex)} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textLabel,cursor:"pointer"}}>{ex.split(",")[0]}</span>)}
-              </div>
-            </>
-          ):(
-            <>
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:8}}>GPS COORDINATES (DECIMAL DEGREES)</div>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                <input value={lat} onChange={e=>setLat(e.target.value)} placeholder="Latitude (e.g. 29.6620)" style={{...inputStyle,flex:1,minWidth:140}}/>
-                <input value={lon} onChange={e=>setLon(e.target.value)} placeholder="Longitude (e.g. -95.5197)" style={{...inputStyle,flex:1,minWidth:160}}/>
-                <input value={siteLabel} onChange={e=>setSiteLabel(e.target.value)} placeholder="Site name (optional)" style={{...inputStyle,flex:1,minWidth:140}}/>
-                <button className="run-btn" onClick={()=>run()} disabled={!canRun} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:10,letterSpacing:"0.2em",padding:"11px 22px",borderRadius:6,cursor:"pointer",opacity:!canRun?0.4:1,whiteSpace:"nowrap"}}>{phase==="loading"?"RUNNING...":"ANALYZE"}</button>
-              </div>
-              <div style={{marginTop:8,padding:"7px 12px",background:"rgba(240,160,48,0.05)",border:`1px solid rgba(240,160,48,0.15)`,borderRadius:5}}>
-                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim}}>TIP: Right-click any location in Google Maps — coordinates appear at the top of the context menu.</span>
-              </div>
-              <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:"4px 16px"}}>
-                <span style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:11,color:C.textLabel}}>Try:</span>
-                {COORD_EXAMPLES.map(ex=><span key={ex.label} className="ex" onClick={()=>{setLat(ex.lat);setLon(ex.lon);setSiteLabel(ex.label);}} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textLabel,cursor:"pointer"}}>{ex.label}</span>)}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Recent Reports */}
-        {recentReports.length>0&&(
-          <div style={{marginBottom:24,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
-            <div style={{padding:"9px 16px",background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",color:C.textLabel}}>RECENT REPORTS</span>
-              <button onClick={clearRecent} style={{background:"none",border:"none",cursor:"pointer",fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,letterSpacing:"0.1em"}}>CLEAR ALL</button>
-            </div>
-            {recentReports.map(r=>{
-              const q=getQuadrant(r.scores.site,r.scores.demand);
-              const btnBase={fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.12em",padding:"5px 10px",borderRadius:4,cursor:"pointer",border:`1px solid ${C.border}`};
-              return(
-                <div key={r.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:`1px solid ${C.border}`,background:C.bg}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:C.textBright,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.display}</div>
-                    <div style={{marginTop:3}}><span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:q.color}}>{q.label}</span></div>
-                  </div>
-                  <div style={{display:"flex",gap:6,whiteSpace:"nowrap",flexShrink:0}}>
-                    {[["S",r.scores.site],["D",r.scores.demand],["PI",r.scores.pi]].map(([label,val])=>(
-                      <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:4,padding:"4px 9px",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
-                        <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,color:C.textDim,letterSpacing:"0.12em"}}>{label}</span>
-                        <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,fontWeight:600,color:scoreColor(val),lineHeight:1}}>{val}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textDim,whiteSpace:"nowrap"}}>{relativeTime(r.ts)}</span>
-                  <button onClick={()=>loadReport(r)} style={{...btnBase,background:C.surface,color:C.textLabel}}>LOAD</button>
-                  <button onClick={()=>rerunReport(r)} style={{...btnBase,background:"transparent",color:C.amber,borderColor:C.amber}} disabled={phase==="loading"}>{phase==="loading"?"...":"RE-RUN"}</button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Log */}
-        {log.length>0&&(
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"14px 18px",marginBottom:24}}>
-            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>ANALYSIS LOG</div>
-            {log.map((item,i)=><div key={i} className="log-row"><LogLine msg={item.msg} s={item.s}/></div>)}
-            {phase==="loading"&&<div className="blink" style={{display:"flex",gap:10,padding:"4px 0",color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,marginTop:2}}><span>●</span><span>Contacting Anthropic API...</span></div>}
-          </div>
-        )}
-
-        {/* Error */}
-        {phase==="error"&&(
-          <div style={{background:"rgba(192,57,43,0.06)",border:"1px solid rgba(192,57,43,0.3)",borderRadius:8,padding:"14px 18px",marginBottom:24}}>
-            <div style={{color:C.red,fontFamily:"'IBM Plex Mono',monospace",fontSize:11,marginBottom:8}}>ERROR — {error}</div>
-            <button onClick={()=>run()} style={{background:"transparent",border:`1px solid ${C.red}`,color:C.red,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.15em",padding:"7px 16px",borderRadius:4,cursor:"pointer"}}>RETRY</button>
-          </div>
-        )}
-
-        {/* Results */}
-        {phase==="complete"&&results&&(()=>{
-          const dr={...results,...(results.modes?.[demandTab]||{}),evalMode:demandTab};
-          const siteScore=results.site?.composite||0;
-          const demandScore=dr.demand?.composite||0;
-          const pi=priorityIndex(siteScore,demandScore);
-          const q=getQuadrant(siteScore,demandScore);
-          const demandSubLabel={passenger:"passenger draw",cargo:"cargo & logistics",combo:"cargo + passenger"}[demandTab]||"demand";
-          const prevSite=previous?.site?.composite??null;
-          const prevDemand=previous?.modes?.[demandTab]?.demand?.composite??null;
-          return (
-            <div>
-              {/* Demand mode tabs */}
-              <div style={{display:"flex",gap:6,marginBottom:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"12px 16px",flexWrap:"wrap",alignItems:"center"}}>
-                <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginRight:8,flexShrink:0}}>EVALUATION MODE:</div>
-                {[
-                  {id:"passenger",label:"PASSENGER"},
-                  {id:"cargo",    label:"CARGO"},
-                  {id:"combo",    label:"CARGO+PAX"},
-                ].map(m=>{
-                  const mDemand=results.modes?.[m.id]?.demand?.composite||0;
-                  const mPI=priorityIndex(siteScore,mDemand);
-                  const active=demandTab===m.id;
-                  return(
-                    <button key={m.id} onClick={()=>setDemandTab(m.id)} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:8,letterSpacing:"0.12em",padding:"7px 16px",borderRadius:4,cursor:"pointer",border:`1px solid ${active?C.amber:C.border}`,background:active?C.amberGlow:"transparent",color:active?C.amber:C.textLabel,transition:"all 0.15s"}}>
-                      {m.label} · D:{mDemand} · PI:{mPI}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Score header */}
-              <div style={{display:"flex",gap:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"22px 24px",marginBottom:20,flexWrap:"wrap"}}>
-                <QuadrantPlot site={siteScore} demand={demandScore} previousSite={prevSite} previousDemand={prevDemand}/>
-                <div style={{flex:1,minWidth:260}}>
-                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:8}}>DUAL-AXIS ASSESSMENT</div>
-                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,color:C.textBright,marginBottom:3}}>{results.geocode.matched}</div>
-                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.textLabel,marginBottom:14}}>{results.geocode.lat?.toFixed(5)}°N · {Math.abs(results.geocode.lon)?.toFixed(5)}°W</div>
-
-                  <div style={{display:"flex",gap:10,marginBottom:14}}>
-                    <ScorePill label="SITE SCORE" score={siteScore} sub="infrastructure viability"/>
-                    <ScorePill label="DEMAND SCORE" score={demandScore} sub={demandSubLabel}/>
-                    <ScorePill label="PRIORITY INDEX" score={pi} sub="composite score"/>
-                  </div>
-
-                  <div style={{padding:"10px 14px",background:`${q.color}0e`,border:`1px solid ${q.color}33`,borderRadius:6,marginBottom:12}}>
-                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:600,color:q.color,marginBottom:6,letterSpacing:"0.1em"}}>{q.label}</div>
-                    <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.5}}>{getSiteDesc(siteScore)}</div>
-                    <div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.5,marginTop:4}}>{getDemandDesc(demandScore,demandTab)}</div>
-                  </div>
-
-                  {dr.summary&&<div style={{fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.text,lineHeight:1.65,marginBottom:10,paddingLeft:12,borderLeft:`2px solid ${C.border}`}}>{dr.summary}</div>}
-                  {dr.development_thesis&&<div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:C.amber,marginBottom:12,lineHeight:1.5}}>▶ {dr.development_thesis}</div>}
-
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
-                    {(dr.top_strengths||[]).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.green,background:"rgba(26,138,88,0.09)",border:"1px solid rgba(26,138,88,0.25)",borderRadius:3,padding:"3px 9px"}}>✓ {s}</span>)}
-                    {(dr.top_concerns||[]).filter(Boolean).map((s,i)=><span key={i} style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.yellow,background:"rgba(200,122,16,0.09)",border:"1px solid rgba(200,122,16,0.25)",borderRadius:3,padding:"3px 9px"}}>⚑ {s}</span>)}
-                  </div>
-
-                  {/* PDF Download Button */}
-                  <button className="pdf-btn" onClick={handleDownloadPDF} disabled={pdfGenerating}
-                    style={{background:"transparent",border:`1px solid ${C.green}`,color:C.green,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 20px",borderRadius:6,cursor:"pointer",opacity:pdfGenerating?0.5:1,display:"flex",alignItems:"center",gap:8}}>
-                    <span>⬇</span>
-                    <span>{pdfGenerating?"GENERATING...":"DOWNLOAD REPORT PDF"}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Site criteria */}
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>SITE SCORE — INFRASTRUCTURE CRITERIA</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:20}}>
-                <SiteCard label="Parcel" icon="▣" score={results.site?.parcel?.score} notes={results.site?.parcel?.notes} details={{"Acreage":results.site?.parcel?.acreage_estimate?`~${results.site.parcel.acreage_estimate} ac`:null,"Type":results.site?.parcel?.land_type}}/>
-                <SiteCard label="FAA Airspace" icon="✈" score={results.site?.airspace?.score} notes={results.site?.airspace?.notes} details={{"Class":results.site?.airspace?.status,"Airport":results.site?.airspace?.nearest_airport,"LAANC":results.site?.airspace?.laanc_required?"Required":"Not required"}}/>
-                <SiteCard label="Power Grid & DER" icon="⚡" score={results.eia?.score??null} pending={!results.eia} notes={results.eia?.notes} details={results.eia?.details}/>
-                <SiteCard label="Zoning" icon="◈" score={results.site?.zoning?.score} notes={results.site?.zoning?.notes} details={{"Compliance":results.site?.zoning?.compliance,"Use":results.site?.zoning?.land_use}}/>
-                <SiteCard label="Soil & Flood" icon="⬡" score={results.site?.soil?.score} notes={results.site?.soil?.notes} details={{"Flood":results.site?.soil?.flood_zone,"Slope":results.site?.soil?.slope_estimate,"Elev":results.site?.soil?.elevation_ft?`${results.site.soil.elevation_ft} ft`:null}}/>
-                <SiteCard label="DER Support" icon="◉" score={results.nrel?.score??null} pending={!results.nrel} notes={results.nrel?.notes} details={results.nrel?.details}/>
-              </div>
-
-              {/* Demand criteria */}
-              <HeliportModifier heli={results.heliport}/>
-
-              <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>{DEMAND_HEADER[demandTab]}</div>
-              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"18px 20px",marginBottom:20}}>
-                {(DEMAND_CRITERIA[demandTab]).map(cr=>(
-                  <DemandRow key={cr.key} label={cr.label} icon={cr.icon} score={dr.demand?.[cr.key]?.score||0} notes={dr.demand?.[cr.key]?.notes}/>
-                ))}
-              </div>
-
-              {/* Flying Days */}
-              <FlyingDaysPanel data={results.flyingDays}/>
-
-              {/* Regulatory Checklist */}
-              <RegulatoryChecklist items={dr.regulatory}/>
-
-              {/* Investment / Viability */}
-              <InvestmentPanel data={dr.investment}/>
-
-              {/* Flags */}
-              {results.flags?.length>0&&(
-                <div style={{marginBottom:20,background:"rgba(240,160,48,0.04)",border:"1px solid rgba(240,160,48,0.18)",borderRadius:8,padding:"14px 18px"}}>
-                  <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.amberDim,letterSpacing:"0.2em",marginBottom:10}}>FLAGS — ITEMS REQUIRING INVESTIGATION</div>
-                  {results.flags.map((flag,i)=>(
-                    <div key={i} style={{display:"flex",gap:10,padding:"6px 0",borderTop:i>0?`1px solid ${C.border}`:"none",fontFamily:"'IBM Plex Sans',sans-serif",fontSize:12,color:C.yellow,lineHeight:1.55}}>
-                      <span style={{flexShrink:0}}>⚑</span><span>{flag}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-
-              {/* Map */}
-              <div style={{marginBottom:20}}>
-                <SiteMap geocode={results.geocode} heliport={results.heliport} airspace={results.site?.airspace} onMapClick={phase!=="loading"?handleMapClick:undefined}/>
-              </div>
-
-              <div style={{display:"flex",gap:12,justifyContent:"center"}}>
-                <button onClick={()=>run()} disabled={phase==="loading"} style={{background:"transparent",border:`1px solid ${C.amber}`,color:C.amber,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 24px",borderRadius:6,cursor:"pointer"}}>RE-ANALYZE</button>
-                <button onClick={reset} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.textLabel,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,letterSpacing:"0.2em",padding:"10px 24px",borderRadius:6,cursor:"pointer"}}>NEW SITE</button>
-              </div>
-            </div>
-          );
-        })()}
-
-        <div style={{marginTop:48,paddingTop:18,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:C.textLabel}}>
-          <span>FAA · NREL · FEMA · USGS · EIA · NOAA · OSM</span>
-          <span>PHASE 1 — TEXAS · FAA/NREL CALIBRATED</span>
         </div>
       </div>
-    </div>
+    </AppCtx.Provider>
   );
 }
