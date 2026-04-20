@@ -1,4 +1,0 @@
-# Proprietary scoring files — never overwrite from public remote
-src/scoring.js merge=ours
-src/heliportLookup.js merge=ours
-src/investmentViability.js merge=ours
