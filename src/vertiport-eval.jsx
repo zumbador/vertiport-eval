@@ -1634,6 +1634,7 @@ function VESSidebar({ isPro }) {
     { id:'financial',      label:'Financial',      icon:'💰', badge:null, bc:null, proOnly:true },
     { id:'actions',        label:'Action Items',   icon:'✅', badge:flagCount>0?String(flagCount):null, bc:'#d97706', proOnly:true },
     { id:'map',            label:'Map View',       icon:'🗺️', badge:null, bc:null, proOnly:false },
+    { id:'batch',          label:'Batch Scoring',  icon:'⬡',  badge:null, bc:null, proOnly:true  },
   ];
 
   return (
@@ -2273,6 +2274,23 @@ function ActionsPanel({ isPro }) {
   );
 }
 
+/* ─── PANEL: BATCH SCORING (pro gate) ───────────── */
+function BatchNetworkPanel() {
+  const { isPro, theme } = useApp();
+  const T = tok(theme);
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%', background:T.mainBg }}>
+      <ProGate isPro={isPro}>
+        <div style={{ background:T.cardBg, border:`1px solid ${T.cardBorder}`, borderRadius:8,
+                      padding:'16px 20px', fontFamily:"'IBM Plex Mono',monospace",
+                      fontSize:12, color:T.textDim }}>
+          Batch Scoring — draw a polygon on the map to score and rank all parcels within the area.
+        </div>
+      </ProGate>
+    </div>
+  );
+}
+
 /* ─── PANEL: MAP ─────────────────────────────────── */
 function MapPanel() {
   const { results, phase, handleMapClick, setActivePanel } = useApp();
@@ -2604,6 +2622,7 @@ export default function App({ isPro = false }) {
             {activePanel === 'financial'      && <FinancialPanel isPro={isPro}/>}
             {activePanel === 'actions'        && <ActionsPanel isPro={isPro}/>}
             {activePanel === 'map'            && <MapPanel/>}
+            {activePanel === 'batch'          && <BatchNetworkPanel/>}
           </div>
         </div>
       </div>
