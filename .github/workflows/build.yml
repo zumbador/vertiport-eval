@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to upload artifacts to (e.g. v0.1.2)'
+        required: false
 
 permissions:
   contents: write
@@ -28,6 +32,17 @@ jobs:
           path: |
             release/*.deb
             release/*.AppImage
+      - name: Resolve release tag
+        id: rel
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload to release
+        if: steps.rel.outputs.tag != ''
+        run: gh release upload "${{ steps.rel.outputs.tag }}" release/*.deb release/*.AppImage --clobber
 
   build-windows:
     runs-on: windows-latest
@@ -45,6 +60,19 @@ jobs:
         with:
           name: windows
           path: release/*.exe
+      - name: Resolve release tag
+        id: rel
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload to release
+        if: steps.rel.outputs.tag != ''
+        shell: bash
+        run: gh release upload "${{ steps.rel.outputs.tag }}" release/*.exe --clobber
 
   build-mac:
     runs-on: macos-latest
@@ -62,3 +90,14 @@ jobs:
         with:
           name: mac
           path: release/*.dmg
+      - name: Resolve release tag
+        id: rel
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload to release
+        if: steps.rel.outputs.tag != ''
+        run: gh release upload "${{ steps.rel.outputs.tag }}" release/*.dmg --clobber
