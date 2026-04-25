@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 import aamLogo from './assets/aam_logo.png';
 import SetupScreen from './SetupScreen.jsx';
 import { jsPDF } from "jspdf";
@@ -69,6 +69,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   const demandScore = results.demand?.composite || 0;
   const pi = priorityIndex(siteScore, demandScore);
   const q = getQuadrant(siteScore, demandScore);
+  const em = results.evalMode || "passenger";
 
   // ── Header band ──
   setFill("#5B9BD5");
@@ -114,10 +115,12 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   // ── Three score boxes ──
   y += 8;
   const boxW = (W - margin*2 - 8) / 3;
+  const modeBadgeLabel = { passenger:"PASSENGER", cargo:"CARGO", combo:"CARGO+PAX" }[em] || em.toUpperCase();
+  const modeBadgeColor = { passenger:"#5B9BD5", cargo:"#4a9a8e", combo:"#7b7bd5" }[em] || "#5B9BD5";
   const scores = [
-    { label:"SITE SCORE", sub:"infrastructure viability", val:siteScore },
-    { label:"DEMAND SCORE", sub:"passenger + cargo draw", val:demandScore },
-    { label:"PRIORITY INDEX", sub:"site + demand composite", val:pi },
+    { label:"SITE SCORE",     sub:"infrastructure viability", val:siteScore },
+    { label:"DEMAND SCORE",   sub:{passenger:"passenger draw",cargo:"cargo & logistics",combo:"cargo + passenger"}[em]||"demand", val:demandScore, badge:modeBadgeLabel, badgeColor:modeBadgeColor },
+    { label:"PRIORITY INDEX", sub:"site + demand composite",  val:pi },
   ];
 
   scores.forEach((s, i) => {
@@ -139,12 +142,21 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
     doc.setFontSize(6);
     doc.setFont("helvetica","normal");
     doc.text(s.sub, bx + 6, y + 26);
+    if (s.badge) {
+      const bW = 20, bH = 5.5;
+      const bX = bx + boxW - bW - 3, bY = y + 3;
+      setFill(s.badgeColor);
+      doc.roundedRect(bX, bY, bW, bH, 1, 1, "F");
+      setTxt("#FFFFFF");
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(5);
+      doc.text(s.badge, bX + bW / 2, bY + 3.8, { align:"center" });
+    }
   });
 
   // ── Quadrant badge ──
   y += 34;
   const qCol = q.color;
-  const em = results.evalMode || "passenger";
   setFill(qCol + "22"); setDraw(qCol + "66");
   doc.roundedRect(col, y, W - margin*2, 20, 2, 2, "FD");
   setTxt(qCol);
@@ -652,7 +664,7 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
       const inv = mData.investment;
       const grade = inv?.grade?.grade || "–";
       const capex = inv?.capex?.mid ? `$${(inv.capex.mid/1e6).toFixed(1)}M` : "–";
-      const npv = inv?.npv?.mid !== undefined ? `$${(inv.npv.mid/1e6).toFixed(1)}M` : "–";
+      const npv = inv?.npv !== undefined ? `${inv.npv >= 0 ? "+" : "-"}$${(Math.abs(inv.npv)/1e6).toFixed(1)}M` : "–";
       let cy = y;
 
       // Column header
@@ -2284,7 +2296,7 @@ function BatchNetworkPanel() {
         <div style={{ background:T.cardBg, border:`1px solid ${T.cardBorder}`, borderRadius:8,
                       padding:'16px 20px', fontFamily:"'IBM Plex Mono',monospace",
                       fontSize:12, color:T.textDim }}>
-          Batch Scoring — draw a polygon on the map to score and rank all parcels within the area.
+          Batch Score Area — draw a polygon on the map to score and rank all parcels within the area.
         </div>
       </ProGate>
     </div>
@@ -2327,6 +2339,8 @@ export default function App({ isPro = false }) {
   const [error,setError]=useState(null);
   const [pdfGenerating,setPdfGenerating]=useState(false);
   const [demandTab,setDemandTab]=useState("passenger");
+  const demandTabRef=useRef("passenger");
+  const setDemandTabSync=(v)=>{ demandTabRef.current=v; setDemandTab(v); };
   const [recentReports,setRecentReports]=useState(()=>{try{return JSON.parse(localStorage.getItem("veval_recent")||"[]");}catch{return [];}});
   const [activePanel, setActivePanel] = useState('dashboard');
   const [theme, setTheme] = useState('light');
@@ -2450,6 +2464,10 @@ export default function App({ isPro = false }) {
       else     setL(eiaIdx, `EIA → ${eiaS.reason?.message||"fetch failed"}`,"warn");
       if(nrel) setL(nrelIdx,`NREL → Community DER: ${nrel.score}/100`,"done");
       else     setL(nrelIdx,`NREL → ${nrelS.reason?.message||"fetch failed"}`,"warn");
+      // Apply EIA (20%) and NREL (5%) live scores to site composite.
+      // LLM formula maxes at 75% (parcel+airspace+zoning+soil); these complete the 100%.
+      if(eia)  siteData.composite=Math.min(100,Math.round((siteData?.composite||0)+(eia.score*0.20)));
+      if(nrel) siteData.composite=Math.min(100,Math.round((siteData?.composite||0)+(nrel.score*0.05)));
       if(hcad){
         setL(hcadIdx,`${hcad._source} → Parcel: ${hcad.acreage_estimate} ac · score ${hcad.score}/100`,"done");
         const oldP=siteData?.parcel?.score||0;
@@ -2533,7 +2551,8 @@ export default function App({ isPro = false }) {
     if(!results)return;
     setPdfGenerating(true);
     try{
-      const dr={...results,...(results.modes?.[demandTab]||{}),evalMode:demandTab};
+      const tab=demandTabRef.current;
+      const dr={...results,...(results.modes?.[tab]||{}),evalMode:tab};
       // Load logo for PDF header
       let logoDataUrl=null;
       try{logoDataUrl=await new Promise((res,rej)=>{const img=new Image();img.onload=()=>{const c=document.createElement("canvas");c.width=img.width;c.height=img.height;c.getContext("2d").drawImage(img,0,0);res(c.toDataURL("image/png"));};img.onerror=rej;img.src=aamLogo;});}catch(e){console.warn("Logo load failed:",e);}
@@ -2554,8 +2573,8 @@ export default function App({ isPro = false }) {
     finally{ setPdfGenerating(false); }
   }
 
-  const reset=()=>{setPhase("idle");setResults(null);setPrevious(null);setLog([]);setAddress("");setLat("");setLon("");setSiteLabel("");setError(null);setDemandTab("passenger");};
-  function loadReport(r){setPrevious(results);setResults(r.results);setPhase("complete");setDemandTab(r.evalMode);setLog([]);setError(null);if(r.input.mode==="coords"){setMode("coords");setLat(String(r.input.lat));setLon(String(r.input.lon));setSiteLabel(r.input.label||"");}else{setMode("address");setAddress(r.input.address||"");}}
+  const reset=()=>{setPhase("idle");setResults(null);setPrevious(null);setLog([]);setAddress("");setLat("");setLon("");setSiteLabel("");setError(null);setDemandTabSync("passenger");};
+  function loadReport(r){setPrevious(results);setResults(r.results);setPhase("complete");setDemandTabSync(r.evalMode);setLog([]);setError(null);if(r.input.mode==="coords"){setMode("coords");setLat(String(r.input.lat));setLon(String(r.input.lon));setSiteLabel(r.input.label||"");}else{setMode("address");setAddress(r.input.address||"");}}
   function rerunReport(r){if(r.input.mode==="coords"){setMode("coords");setLat(String(r.input.lat));setLon(String(r.input.lon));setSiteLabel(r.input.label||"");}else{setMode("address");setAddress(r.input.address||"");}run(r.input);}
   function clearRecent(){setRecentReports([]);localStorage.removeItem("veval_recent");}
   async function handleMapClick(clickLat, clickLon) {
@@ -2587,7 +2606,7 @@ export default function App({ isPro = false }) {
     mode, setMode, address, setAddress,
     lat, setLat, lon, setLon, siteLabel, setSiteLabel,
     run, reset,
-    demandTab, setDemandTab,
+    demandTab, setDemandTab: setDemandTabSync,
     recentReports, loadReport, rerunReport, clearRecent,
     handleDownloadPDF, pdfGenerating,
     llmConfig, setShowSetup,
