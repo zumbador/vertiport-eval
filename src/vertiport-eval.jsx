@@ -2893,10 +2893,14 @@ export default function App({ isPro = false }) {
   useEffect(() => {
     async function initKeys() {
       if (window.electronAPI) {
-        const cfg = await window.electronAPI.getConfig();
-        if (cfg?.veval_beta_access) setGated(true);
-        if (cfg?.apiKey) { setLlmConfig(cfg); setSetupState("ready"); }
-        else { setSetupState("setup"); }
+        try {
+          const cfg = await window.electronAPI.getConfig();
+          if (cfg?.veval_beta_access) setGated(true);
+          if (cfg?.apiKey) { setLlmConfig(cfg); setSetupState("ready"); }
+          else { setSetupState("setup"); }
+        } catch {
+          setSetupState("setup");
+        }
       } else {
         setLlmConfig({ provider: "anthropic", apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY });
         // web mode: setupState stays "ready" (set by initializer)
@@ -2906,7 +2910,12 @@ export default function App({ isPro = false }) {
   }, []);
 
   // ── BYOK gates (conditional renders — after all hooks) ───────
-  if (setupState === "loading") return null; // brief blank while IPC resolves (~10ms)
+  if (setupState === "loading") return (
+    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "#0e1a2b", fontFamily: "'IBM Plex Mono',monospace", color: "#5B9BD5", fontSize: 13 }}>
+      Loading…
+    </div>
+  );
   if (setupState === "setup") {
     return <SetupScreen onComplete={(cfg) => { setLlmConfig(cfg); setSetupState("ready"); }} />;
   }

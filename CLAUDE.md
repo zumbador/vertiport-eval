@@ -241,6 +241,9 @@ Done (remove when stale):
 12. **Open source scoring split** — Public repo gets community default weights
     (rounded/simplified). Private fork retains tuned values validated against 7+ sites.
     LLM demand rubrics stay private entirely. See Notion: Open Source Strategy page.
+    **`src/main.jsx` must have `<App isPro={true} />` in the private fork and
+    `<App />` (no prop) in the public repo. Never commit `isPro={true}` to the
+    public repo.**
 13. **Revenue sequencing** — Open source BYOK → Paid setup service ($150–300) →
     Desktop Analyst Report ($300–600) → Field Audit ($4k–8k) →
     Engineering Package ($15k–30k)

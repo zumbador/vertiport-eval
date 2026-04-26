@@ -2,6 +2,12 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("path");
 const fs   = require("fs");
 
+// Required for Electron AppImages on Linux — without this, the renderer
+// sandbox can fail to start and the window shows a permanent blank screen.
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("no-sandbox");
+}
+
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 
 // ── Config storage (userData/veval-config.json) ─────────────────
