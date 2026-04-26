@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, createContext, useContext } from "react";
 import aamLogo from './assets/aam_logo.png';
 import SetupScreen from './SetupScreen.jsx';
 import { jsPDF } from "jspdf";
+import { downloadPDF } from './ReportPDF.jsx';
 import { findNearestHeliport } from './heliportLookup.js';
 import { estimateFlyingDays } from './flyingDays.js';
 import { buildRegulatoryChecklist, CATEGORIES } from './regulatoryChecklist.js';
@@ -3110,7 +3111,7 @@ export default function App({ isPro = false }) {
           if(resp.ok){const blob=await resp.blob();mapDataUrl=await new Promise(res=>{const r=new FileReader();r.onloadend=()=>res(r.result);r.readAsDataURL(blob);});}
         }catch(e){console.warn("Map image fetch failed:",e);}
       }
-      generatePDF_v2(dr,mapDataUrl,logoDataUrl);
+      await downloadPDF(dr,mapDataUrl,logoDataUrl);
     }
     catch(err){ console.error("PDF error:",err); alert("PDF generation failed: "+err.message); }
     finally{ setPdfGenerating(false); }
