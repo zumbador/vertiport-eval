@@ -749,6 +749,548 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
   doc.save(filename);
 }
 
+// ── Report V2 ────────────────────────────────────────────────
+function renderGauge(score, fillHex) {
+  const S = 280;
+  const c = document.createElement("canvas");
+  c.width = S; c.height = S;
+  const ctx = c.getContext("2d");
+  const cx = S / 2, cy = S * 0.54, R = S * 0.36, lw = S * 0.078;
+  const startA = Math.PI * 0.75, sweep = Math.PI * 1.5;
+  ctx.fillStyle = "#0d1f38";
+  ctx.beginPath(); ctx.arc(cx, cy, S * 0.49, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, S * 0.49, 0, Math.PI * 2);
+  ctx.strokeStyle = "#1e3a5c"; ctx.lineWidth = S * 0.013; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, R, startA, startA + sweep);
+  ctx.strokeStyle = "#1e3a5c"; ctx.lineWidth = lw; ctx.lineCap = "butt"; ctx.stroke();
+  if (score > 0) {
+    ctx.beginPath(); ctx.arc(cx, cy, R, startA, startA + (score / 100) * sweep);
+    ctx.strokeStyle = fillHex; ctx.lineWidth = lw; ctx.lineCap = "round"; ctx.stroke();
+  }
+  for (let i = 0; i <= 4; i++) {
+    const a = startA + (i / 4) * sweep;
+    ctx.beginPath();
+    ctx.moveTo(cx + (R - lw * 0.65) * Math.cos(a), cy + (R - lw * 0.65) * Math.sin(a));
+    ctx.lineTo(cx + (R + lw * 0.65) * Math.cos(a), cy + (R + lw * 0.65) * Math.sin(a));
+    ctx.strokeStyle = "#ffffff44"; ctx.lineWidth = S * 0.009; ctx.stroke();
+  }
+  ctx.fillStyle = "#ffffff"; ctx.font = `bold ${S * 0.23}px Arial`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(String(score), cx, cy - S * 0.02);
+  ctx.fillStyle = "#6a8aaa"; ctx.font = `${S * 0.065}px Arial`;
+  ctx.fillText("/100", cx, cy + S * 0.145);
+  return c.toDataURL("image/png");
+}
+
+function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = 210, H = 297, margin = 16;
+  const col = margin, colR = W - margin, contentW = W - margin * 2;
+  let y = 0;
+  const SAFE_BOTTOM = 274;
+
+  const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+  const setFill = h => doc.setFillColor(...hex(h));
+  const setDraw = h => doc.setDrawColor(...hex(h));
+  const setTxt  = h => doc.setTextColor(...hex(h));
+
+  const NAVY="#0a1628", NAVY2="#0d1f38", AMBER="#f59e0b", BLUE="#5B9BD5";
+  const GREEN="#1a8a58", RED="#C0392B", AMBER_DIM="#c87a10";
+  const scoreCol = s => s >= 75 ? GREEN : s >= 45 ? AMBER_DIM : RED;
+
+  const headerLogo = logoDataUrl;
+  const logoFmt = (headerLogo?.startsWith("data:image/jpeg")||headerLogo?.startsWith("data:image/jpg")) ? "JPEG" : "PNG";
+  const firmDisplay = "LOWALTITUDEECONOMY.AERO";
+
+  const siteScore = results.site?.composite || 0;
+  const demandScore = results.demand?.composite || 0;
+  const pi = priorityIndex(siteScore, demandScore);
+  const q = getQuadrant(siteScore, demandScore);
+  const em = results.evalMode || "passenger";
+  const modeLabel = { passenger:"PASSENGER", cargo:"CARGO", combo:"CARGO+PAX" }[em] || em.toUpperCase();
+  const modeBadgeColor = { passenger:BLUE, cargo:"#4a9a8e", combo:"#7b7bd5" }[em] || BLUE;
+
+  const pageHeader = () => {
+    setFill(NAVY2); doc.rect(0, 0, W, 14, "F");
+    setFill(AMBER); doc.rect(0, 14, W, 0.6, "F");
+    if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 1.5, 11, 11);
+    setTxt("#888888"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+    doc.text(firmDisplay, col + (headerLogo ? 15 : 0), 8.5);
+    setTxt("#555555"); doc.text(results.geocode?.matched || "Site", colR, 8.5, { align:"right" });
+    y = 20;
+  };
+  const newPage = () => { doc.addPage(); pageHeader(); };
+
+  const sH = title => {
+    if (y + 14 > SAFE_BOTTOM) newPage();
+    setFill(NAVY2); doc.rect(col, y, contentW, 10, "F");
+    setFill(AMBER);  doc.rect(col, y + 10, contentW, 0.6, "F");
+    setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+    doc.text(title, col + 5, y + 7);
+    y += 13; return y;
+  };
+
+  const criterionCard = cr => {
+    if (y + 17 > SAFE_BOTTOM) newPage();
+    const sc = cr.score, cCol = sc === null ? "#9ab8d0" : scoreCol(sc);
+    setFill("#f4f7fc"); setDraw("#c8d8ea"); doc.roundedRect(col, y, contentW, 15, 1.5, 1.5, "FD");
+    setFill(cCol); doc.rect(col, y, 3.5, 15, "F");
+    setTxt("#111111"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+    doc.text(cr.label, col + 7, y + 6.5);
+    setTxt(cCol); doc.setFont("helvetica","bold"); doc.setFontSize(16);
+    doc.text(sc !== null ? String(sc) : "–", col + 68, y + 10);
+    setFill("#dde8f0"); doc.rect(col + 84, y + 6, 50, 3, "F");
+    if (sc !== null) { setFill(cCol); doc.rect(col + 84, y + 6, 50 * sc / 100, 3, "F"); }
+    if (cr.detail) {
+      setTxt("#555555"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+      doc.text(doc.splitTextToSize(cr.detail, contentW - 142), col + 138, y + 5.5);
+    }
+    if (cr.notes) {
+      setTxt("#999999"); doc.setFontSize(6);
+      doc.text(doc.splitTextToSize(cr.notes, contentW - 142), col + 138, y + 9.5);
+    }
+    y += 17;
+  };
+
+  // ═══ PAGE 1: COVER ═════════════════════════════════════════
+  setFill(NAVY); doc.rect(0, 0, W, H, "F");
+  const panelSplit = mapDataUrl ? 124 : W;
+  if (mapDataUrl) {
+    doc.addImage(mapDataUrl, "JPEG", panelSplit, 0, W - panelSplit, H);
+    setFill(NAVY); doc.rect(panelSplit, 0, 10, H, "F");
+    setFill(AMBER); doc.rect(panelSplit - 0.5, 0, 1, H, "F");
+  }
+  setFill(NAVY2); doc.rect(0, 0, panelSplit, 16, "F");
+  setFill(AMBER); doc.rect(0, 16, panelSplit, 0.6, "F");
+  if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
+  setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+  doc.text(firmDisplay, col + (headerLogo ? 16 : 0), 8.5);
+  setTxt("#44445a"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+  doc.text(new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"}), col + (headerLogo ? 16 : 0), 13.5);
+
+  y = 26;
+  setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+  doc.text("SITE EVALUATION SYSTEM  ·  VES", col, y);
+  y += 10;
+  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(22);
+  doc.text("VERTIPORT", col, y);
+  y += 8;
+  setTxt(BLUE); doc.setFont("helvetica","normal"); doc.setFontSize(8);
+  doc.text("SITE FEASIBILITY REPORT", col, y);
+
+  y += 14;
+  const addrMaxW = panelSplit - col - 8;
+  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(15);
+  const addrLines = doc.splitTextToSize(results.geocode?.matched || "Site Analysis", addrMaxW);
+  doc.text(addrLines, col, y);
+  y += addrLines.length * 7 + 3;
+  setTxt("#6a8aaa"); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+  doc.text(`${results.geocode?.lat?.toFixed(5)}°N  ·  ${Math.abs(results.geocode?.lon)?.toFixed(5)}°W`, col, y);
+  y += 7;
+  setFill(modeBadgeColor); doc.roundedRect(col, y, 34, 6.5, 1.5, 1.5, "F");
+  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+  doc.text(modeLabel, col + 17, y + 4.5, { align:"center" });
+  y += 11;
+
+  // PI Gauge
+  const dialMM = 62;
+  const dialCanvas = renderGauge(pi, pi >= 70 ? GREEN : pi >= 50 ? AMBER_DIM : RED);
+  const dialCenterX = col + (addrMaxW - dialMM) / 2;
+  doc.addImage(dialCanvas, "PNG", dialCenterX, y, dialMM, dialMM);
+  setTxt("#6a8aaa"); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+  doc.text("PRIORITY INDEX", col + addrMaxW / 2, y + dialMM + 5, { align:"center" });
+  y += dialMM + 10;
+
+  // Mini score pills
+  const halfW = (addrMaxW - 3) / 2;
+  setFill(NAVY2); doc.roundedRect(col, y, halfW, 10, 1.5, 1.5, "F");
+  setFill(NAVY2); doc.roundedRect(col + halfW + 3, y, halfW, 10, 1.5, 1.5, "F");
+  setTxt("#777799"); doc.setFont("helvetica","normal"); doc.setFontSize(5);
+  doc.text("SITE SCORE", col + halfW / 2, y + 3, { align:"center" });
+  doc.text("DEMAND SCORE", col + halfW + 3 + halfW / 2, y + 3, { align:"center" });
+  setTxt(scoreCol(siteScore)); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+  doc.text(String(siteScore), col + halfW / 2, y + 8.5, { align:"center" });
+  setTxt(scoreCol(demandScore));
+  doc.text(String(demandScore), col + halfW + 3 + halfW / 2, y + 8.5, { align:"center" });
+  y += 14;
+
+  // Quadrant stamp
+  y += 4;
+  const stampW = addrMaxW, stampH = 22;
+  setFill(q.color); doc.roundedRect(col, y, stampW, stampH, 3, 3, "F");
+  setDraw("#ffffff33"); doc.setLineWidth(0.5);
+  doc.roundedRect(col + 2.5, y + 2.5, stampW - 5, stampH - 5, 2, 2, "D");
+  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(12);
+  doc.text(q.label, col + stampW / 2, y + 12, { align:"center" });
+  setTxt("#ffffffcc"); doc.setFont("helvetica","normal"); doc.setFontSize(6);
+  doc.text(`Priority Index ${pi}/100`, col + stampW / 2, y + 18.5, { align:"center" });
+
+  // Cover footer
+  setFill(AMBER); doc.rect(0, H - 14, panelSplit, 0.5, "F");
+  setFill(NAVY2); doc.rect(0, H - 13.5, panelSplit, 13.5, "F");
+  setTxt("#44445a"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+  doc.text("FAA · NREL · FEMA NFHL · USGS · EIA · OSM · Census Bureau", col, H - 7);
+  setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+  doc.text("VES", colR, H - 7, { align:"right" });
+
+  // ═══ PAGE 2: INSTRUMENT PANEL ══════════════════════════════
+  doc.addPage();
+  setFill(NAVY); doc.rect(0, 0, W, H, "F");
+  setFill(NAVY2); doc.rect(0, 0, W, 14, "F");
+  setFill(AMBER); doc.rect(0, 14, W, 0.6, "F");
+  if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 1.5, 11, 11);
+  setTxt("#888888"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+  doc.text(firmDisplay, col + (headerLogo ? 15 : 0), 8.5);
+  setTxt("#555555"); doc.text(results.geocode?.matched || "Site", colR, 8.5, { align:"right" });
+  y = 22;
+  setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(7);
+  doc.text("INSTRUMENT ASSESSMENT  ·  TWO-AXIS SCORING MODEL", col, y);
+  setFill(AMBER); doc.rect(col, y + 3, contentW, 0.4, "F");
+  y += 9;
+
+  const gaugeSize = 60;
+  const gGap = (contentW - 2 * gaugeSize) / 3;
+  const g1x = col + gGap, g2x = col + gGap * 2 + gaugeSize;
+  const demandSubLbl = { passenger:"PASSENGER DRAW", cargo:"CARGO & LOGISTICS", combo:"CARGO + PAX" }[em] || "DEMAND";
+  doc.addImage(renderGauge(siteScore, scoreCol(siteScore)), "PNG", g1x, y, gaugeSize, gaugeSize);
+  doc.addImage(renderGauge(demandScore, scoreCol(demandScore)), "PNG", g2x, y, gaugeSize, gaugeSize);
+  const mbX = col + contentW / 2 - 14;
+  setFill(modeBadgeColor); doc.roundedRect(mbX, y + gaugeSize / 2 - 4, 28, 7, 2, 2, "F");
+  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+  doc.text(modeLabel, col + contentW / 2, y + gaugeSize / 2 + 0.5, { align:"center" });
+  setTxt("#888888"); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+  doc.text("SITE SCORE", g1x + gaugeSize / 2, y + gaugeSize + 5, { align:"center" });
+  doc.text("INFRASTRUCTURE VIABILITY", g1x + gaugeSize / 2, y + gaugeSize + 10, { align:"center" });
+  doc.text("DEMAND SCORE", g2x + gaugeSize / 2, y + gaugeSize + 5, { align:"center" });
+  doc.text(demandSubLbl, g2x + gaugeSize / 2, y + gaugeSize + 10, { align:"center" });
+  y += gaugeSize + 16;
+
+  const matSize = 58;
+  const matX = col + (contentW - matSize - 52) / 2;
+  const piBoxX = matX + matSize + 8;
+  const qs = matSize / 2;
+  [
+    { label:["DEMAND","W/O SITE"], c:"#f59e0b", active:siteScore < 50 && demandScore >= 50, qx:matX,      qy:y },
+    { label:["PRIME","SITE"],      c:"#1a8a58", active:siteScore >= 50 && demandScore >= 50, qx:matX+qs, qy:y },
+    { label:["LOW","PRIORITY"],    c:"#C0392B", active:siteScore < 50 && demandScore < 50,   qx:matX,      qy:y+qs },
+    { label:["INFRA","PLAY"],      c:"#5B9BD5", active:siteScore >= 50 && demandScore < 50,  qx:matX+qs, qy:y+qs },
+  ].forEach(({ label, c, active, qx, qy }) => {
+    if (active) { setFill(c); doc.rect(qx, qy, qs, qs, "F"); setTxt("#ffffff"); }
+    else { setFill(c + "22"); setDraw(c + "66"); doc.rect(qx, qy, qs, qs, "FD"); setTxt(c); }
+    doc.setFont("helvetica","bold"); doc.setFontSize(5);
+    doc.text(label[0], qx + qs / 2, qy + qs / 2 - 2, { align:"center" });
+    doc.text(label[1], qx + qs / 2, qy + qs / 2 + 3, { align:"center" });
+  });
+  const dotX = matX + (siteScore / 100) * matSize, dotY = y + (1 - demandScore / 100) * matSize;
+  setFill("#ffffff"); doc.ellipse(dotX, dotY, 2.2, 2.2, "F");
+  setDraw("#ffffff55"); doc.setLineWidth(0.3);
+  doc.line(matX, dotY, matX + matSize, dotY);
+  doc.line(dotX, y, dotX, y + matSize);
+  setTxt("#44445a"); doc.setFont("helvetica","normal"); doc.setFontSize(5);
+  doc.text("SITE →", matX + matSize + 1, y + matSize + 4);
+
+  setFill(NAVY2); doc.roundedRect(piBoxX, y, 44, matSize, 2, 2, "F");
+  setFill(q.color + "22"); doc.roundedRect(piBoxX, y, 44, matSize, 2, 2, "F");
+  setDraw(q.color + "55"); doc.roundedRect(piBoxX, y, 44, matSize, 2, 2, "D");
+  setTxt("#888888"); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+  doc.text("PRIORITY INDEX", piBoxX + 22, y + 7, { align:"center" });
+  setTxt(q.color); doc.setFont("helvetica","bold"); doc.setFontSize(28);
+  doc.text(String(pi), piBoxX + 22, y + 27, { align:"center" });
+  setTxt("#888888"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+  doc.text("/100", piBoxX + 22, y + 34, { align:"center" });
+  setFill(q.color); doc.roundedRect(piBoxX + 4, y + matSize - 10, 36, 6, 1, 1, "F");
+  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+  doc.text(q.label, piBoxX + 22, y + matSize - 6, { align:"center" });
+  y += matSize + 10;
+
+  setFill(NAVY2); doc.roundedRect(col, y, contentW, 18, 2, 2, "F");
+  setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+  const descTxt = `${getSiteDesc(siteScore)}  ·  ${getDemandDesc(demandScore, em)}`;
+  doc.text(doc.splitTextToSize(descTxt, contentW - 10), col + 5, y + 7);
+  if (results.development_thesis) {
+    setTxt(AMBER); doc.setFontSize(6.5);
+    doc.text(doc.splitTextToSize("▶  " + results.development_thesis, contentW - 10), col + 5, y + 13);
+  }
+  y += 22;
+
+  if (results.summary) {
+    setFill(NAVY2); doc.roundedRect(col, y, contentW, 20, 2, 2, "F");
+    setFill(AMBER); doc.rect(col, y, 2, 20, "F");
+    setTxt("#cccccc"); doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(doc.splitTextToSize(results.summary, contentW - 10), col + 6, y + 6);
+    y += 24;
+  }
+
+  // ═══ CONTENT PAGES ════════════════════════════════════════
+  newPage();
+
+  sH("SITE SCORE — INFRASTRUCTURE CRITERIA");
+  [
+    { label:"Parcel Size & Contours", score:results.site?.parcel?.score, notes:results.site?.parcel?.notes, detail:`${results.site?.parcel?.acreage_estimate ? `~${results.site.parcel.acreage_estimate} ac · ` : ""}${results.site?.parcel?.land_type||""}` },
+    { label:"FAA Airspace",           score:results.site?.airspace?.score, notes:results.site?.airspace?.notes, detail:`${results.site?.airspace?.status||""} · ${results.site?.airspace?.nearest_airport||""}` },
+    { label:"Power Grid & DER",       score:results.eia?.score??null, notes:results.eia?.notes||"EIA key not set", detail:results.eia ? `${results.eia.details?.["Grid"]||""} · ${results.eia.details?.["US sales"]||""}` : "Pending" },
+    { label:"Zoning Compliance",      score:results.site?.zoning?.score, notes:results.site?.zoning?.notes, detail:`${results.site?.zoning?.compliance||""} · ${results.site?.zoning?.land_use||""}` },
+    { label:"Soil Stability & Flood", score:results.site?.soil?.score, notes:results.site?.soil?.notes, detail:`${results.site?.soil?.flood_zone||""} · ${results.site?.soil?.slope_estimate||""}` },
+    { label:"Community DER Support",  score:results.nrel?.score??null, notes:results.nrel?.notes||"NREL key not set", detail:results.nrel ? `${results.nrel.details?.["Utility"]||""} · GHI ${results.nrel.details?.["Solar GHI"]||"N/A"}` : "Pending" },
+  ].forEach(criterionCard);
+
+  y += 3; sH(DEMAND_HEADER[em] || "DEMAND SCORE — WHY FLY HERE?");
+  (DEMAND_CRITERIA[em] || DEMAND_CRITERIA.passenger).map(cr => ({
+    label: cr.label, score: results.demand?.[cr.key]?.score ?? null, notes: results.demand?.[cr.key]?.notes,
+  })).forEach(criterionCard);
+
+  const flags = results.flags || [];
+  if (flags.length > 0) {
+    if (y + 20 > SAFE_BOTTOM) newPage();
+    y += 3; sH("FLAGS — ITEMS REQUIRING INVESTIGATION");
+    flags.forEach(flag => {
+      if (y + 12 > SAFE_BOTTOM) newPage();
+      const ls = doc.splitTextToSize("⚑  " + flag, contentW - 6);
+      const fH = ls.length * 4.5 + 6;
+      setFill("#fffbec"); setDraw(AMBER); doc.roundedRect(col, y, contentW, fH, 1.5, 1.5, "FD");
+      setTxt(AMBER_DIM); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
+      doc.text(ls, col + 4, y + 5);
+      y += fH + 2;
+    });
+  }
+
+  const fly = results.flyingDays;
+  if (fly) {
+    if (y + 52 > SAFE_BOTTOM) newPage();
+    y += 3; sH("ESTIMATED FLYING DAYS PER YEAR");
+    const flyCol = fly.flyingDays >= 300 ? GREEN : fly.flyingDays >= 275 ? "#2da06a" : fly.flyingDays >= 250 ? AMBER_DIM : RED;
+    setFill("#f4f7fc"); setDraw("#c8d8ea"); doc.roundedRect(col, y, contentW, 16, 1.5, 1.5, "FD");
+    setFill(flyCol); doc.rect(col, y, 3.5, 16, "F");
+    setTxt(flyCol); doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.text(String(fly.flyingDays), col+8, y+11);
+    setTxt("#444444"); doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(`days/yr  ·  ${fly.rating}  ·  ${Math.round((fly.flyingDays/365)*100)}% availability  ·  ${fly.noFlyDays} grounded`, col+30, y+7);
+    setTxt("#666666"); doc.setFontSize(6.5); doc.text(doc.splitTextToSize(fly.notes, contentW - 34), col+30, y+12);
+    y += 20;
+    const constraints = Object.entries(fly.breakdown).filter(([k]) => k !== "overlap");
+    const cLabels3 = { thunderstorm:"Thunderstorms", fog:"Fog/Low Vis", wind:"High Wind", precip:"Heavy Precip", heat:"Extreme Heat", icing:"Icing" };
+    const bw3 = (contentW - (constraints.length-1)*2) / constraints.length;
+    constraints.forEach(([key, days], i) => {
+      const bx3 = col + i * (bw3 + 2);
+      const cCol3 = days >= 30 ? RED : days >= 15 ? AMBER_DIM : GREEN;
+      setFill("#f4f7fc"); setDraw("#d0dce8"); doc.roundedRect(bx3, y, bw3, 12, 1, 1, "FD");
+      setTxt("#999999"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.text(cLabels3[key]||key, bx3+2, y+4.5);
+      setTxt(cCol3); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text(String(days), bx3+2, y+10);
+    });
+    y += 16;
+  }
+
+  const strengths = results.top_strengths || [];
+  const concerns = (results.top_concerns || []).filter(Boolean);
+  if (strengths.length || concerns.length) {
+    const scH2 = (strengths.length + concerns.length) * 6 + 12;
+    if (y + scH2 > SAFE_BOTTOM) newPage();
+    y += 3;
+    setFill("#f9fafb"); setDraw("#e0e8f0"); doc.roundedRect(col, y, contentW, scH2, 1.5, 1.5, "FD");
+    strengths.forEach(s => { setTxt(GREEN); doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.text("✓  " + s, col+5, y+7); y += 6; });
+    concerns.forEach(s => { setTxt(AMBER_DIM); doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.text("⚑  " + s, col+5, y+7); y += 6; });
+    y += 8;
+  }
+
+  if (mapDataUrl) {
+    doc.addPage(); y = 0;
+    setFill(NAVY2); doc.rect(0, 0, W, 20, "F");
+    setFill(AMBER); doc.rect(0, 20, W, 0.6, "F");
+    if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
+    setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    doc.text("SITE MAP — SATELLITE", col + (headerLogo ? 16 : 5), 10);
+    setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+    doc.text(`${results.geocode?.matched||"Site"} · ${results.geocode?.lat?.toFixed(5)}°N · ${Math.abs(results.geocode?.lon)?.toFixed(5)}°W`, col + (headerLogo ? 16 : 5), 16);
+    y = 21;
+    doc.addImage(mapDataUrl, "JPEG", 0, y, W, H - y);
+    const asStatus = results.site?.airspace?.status || "Class G/E";
+    const asColor = asStatus.includes("Class B SFC") ? RED : asStatus.includes("Class B") ? "#8B0000" : asStatus.includes("Class C") ? "#800080" : asStatus.includes("Class D") ? "#00008B" : GREEN;
+    setFill(NAVY + "ee"); doc.roundedRect(col, H - 22, 62, 14, 2, 2, "F");
+    setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(5); doc.text("AIRSPACE", col+4, H-17);
+    setTxt(asColor); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text(asStatus, col+4, H-11);
+  }
+
+  {
+    doc.addPage(); y = 0;
+    setFill(NAVY); doc.rect(0, 0, W, 20, "F");
+    setFill(AMBER); doc.rect(0, 20, W, 0.6, "F");
+    if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
+    setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    doc.text("REGULATORY CHECKLIST", col + (headerLogo ? 16 : 5), 10);
+    const regItems = results.modes?.[em]?.regulatory?.items || results.regulatory?.items || [];
+    setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+    doc.text(`${results.geocode?.matched||"Site"} · ${regItems.length} items · ${regItems.filter(r=>r.status==="required").length} required · ${regItems.filter(r=>r.urgency==="critical").length} critical`, col + (headerLogo ? 16 : 5), 16);
+    y = 26;
+    const regByCat = {};
+    regItems.forEach(item => { const cat = item.category || "General"; if (!regByCat[cat]) regByCat[cat] = []; regByCat[cat].push(item); });
+    Object.entries(regByCat).forEach(([cat, items]) => {
+      if (y + 10 > SAFE_BOTTOM) { newPage(); }
+      setFill("#1a2f4a"); doc.rect(col, y, contentW, 7, "F");
+      setFill(AMBER); doc.rect(col, y + 7, contentW, 0.5, "F");
+      setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.text(cat.toUpperCase(), col+4, y+5);
+      y += 9;
+      items.forEach(item => {
+        if (y + 10 > SAFE_BOTTOM) { newPage(); }
+        const urg = item.urgency || "routine";
+        const bColor = urg === "critical" ? RED : urg === "important" ? AMBER_DIM : GREEN;
+        setFill(item.status === "required" ? "#fff8f0" : "#f9fafb"); setDraw("#d8e4f0");
+        doc.roundedRect(col, y, contentW, 10, 1, 1, "FD");
+        setFill(bColor); doc.rect(col, y, 2.5, 10, "F");
+        setTxt("#222222"); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+        doc.text(item.item || "", col+5, y+4.5);
+        setTxt(item.status === "required" ? RED : GREEN); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+        doc.text((item.status||"").toUpperCase(), colR-2, y+4.5, { align:"right" });
+        if (item.notes) {
+          setTxt("#777777"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+          doc.text(doc.splitTextToSize(item.notes, contentW - 55), col+5, y+7.5);
+        }
+        y += 11.5;
+      });
+      y += 3;
+    });
+  }
+
+  {
+    const inv = results.modes?.[em]?.investment || results.investment;
+    if (inv) {
+      doc.addPage(); y = 0;
+      setFill(NAVY); doc.rect(0, 0, W, 20, "F");
+      setFill(AMBER); doc.rect(0, 20, W, 0.6, "F");
+      if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
+      setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+      doc.text("INVESTMENT & VIABILITY", col + (headerLogo ? 16 : 5), 10);
+      setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+      doc.text(`${modeLabel} mode · Grade ${inv.grade?.grade||"—"} · CAPEX $${inv.capex?.mid ? (inv.capex.mid/1e6).toFixed(1) : "–"}M`, col + (headerLogo ? 16 : 5), 16);
+      y = 26;
+      const gColor = { A:GREEN, B:"#2da06a", C:AMBER_DIM, D:RED }[inv.grade?.grade] || AMBER_DIM;
+      setFill(gColor); doc.roundedRect(col, y, contentW, 18, 2, 2, "F");
+      setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(22); doc.text(inv.grade?.grade||"–", col+12, y+14);
+      doc.setFontSize(9); doc.text(inv.grade?.label||"", col+26, y+8);
+      doc.setFont("helvetica","normal"); doc.setFontSize(7);
+      doc.text(doc.splitTextToSize(inv.grade?.description||"", contentW - 32), col+26, y+13.5);
+      y += 22;
+      if (inv.scenario) {
+        setFill(NAVY2); doc.roundedRect(col, y, contentW, 10, 1.5, 1.5, "F");
+        setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.text("DEVELOPMENT SCENARIO", col+5, y+4);
+        setTxt("#ffffff"); doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.text(inv.scenario, col+5, y+8.5);
+        y += 13;
+      }
+      y += 3; sH("CAPITAL EXPENDITURE BREAKDOWN");
+      [
+        { label:"Site Acquisition",    lo:inv.capex?.acquisition?.low,    mid:inv.capex?.acquisition?.mid,    hi:inv.capex?.acquisition?.high },
+        { label:"Infrastructure Build",lo:inv.capex?.infrastructure?.low,  mid:inv.capex?.infrastructure?.mid,  hi:inv.capex?.infrastructure?.high },
+        { label:"Equipment & Systems", lo:inv.capex?.equipment?.low,       mid:inv.capex?.equipment?.mid,       hi:inv.capex?.equipment?.high },
+        { label:"Permits & Compliance",lo:inv.capex?.permits?.low,         mid:inv.capex?.permits?.mid,         hi:inv.capex?.permits?.high },
+        { label:"Contingency",         lo:inv.capex?.contingency?.low,     mid:inv.capex?.contingency?.mid,     hi:inv.capex?.contingency?.high },
+        { label:"TOTAL CAPEX",         lo:inv.capex?.low,                  mid:inv.capex?.mid,                  hi:inv.capex?.high, total:true },
+      ].forEach((ci, ri) => {
+        if (ci.mid == null && !ci.total) return;
+        if (y + 9 > SAFE_BOTTOM) newPage();
+        const fmt = v => v != null ? `$${(v/1e6).toFixed(1)}M` : "–";
+        if (ci.total) { setFill(NAVY2); doc.rect(col, y, contentW, 9, "F"); setTxt("#ffffff"); }
+        else { setFill(ri % 2 === 0 ? "#f4f7fc" : "#ffffff"); doc.rect(col, y, contentW, 9, "F"); setTxt("#222222"); }
+        doc.setFont("helvetica", ci.total ? "bold" : "normal"); doc.setFontSize(7); doc.text(ci.label, col+4, y+6);
+        setTxt(ci.total ? "#999999" : "#777777"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+        doc.text(`${fmt(ci.lo)} – ${fmt(ci.hi)}`, colR - 48, y+6);
+        setTxt(ci.total ? "#ffffff" : "#222222"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+        doc.text(fmt(ci.mid), colR-4, y+6, { align:"right" });
+        y += 9;
+      });
+      if (inv.npv !== undefined) {
+        y += 4;
+        const npvColor = inv.npv >= 0 ? GREEN : RED;
+        setFill(npvColor + "22"); setDraw(npvColor + "66"); doc.roundedRect(col, y, contentW, 12, 1.5, 1.5, "FD");
+        setTxt(npvColor); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("10-YEAR NPV", col+5, y+5);
+        doc.setFontSize(14); doc.text(`${inv.npv >= 0 ? "+" : "-"}$${(Math.abs(inv.npv)/1e6).toFixed(1)}M`, colR-4, y+9, { align:"right" });
+        y += 16;
+      }
+      if (inv.risks?.length) {
+        y += 3; sH("RISK ASSESSMENT");
+        inv.risks.forEach(r => {
+          if (y + 9 > SAFE_BOTTOM) newPage();
+          const rCol2 = r.level === "high" ? RED : r.level === "medium" ? AMBER_DIM : GREEN;
+          setFill("#f9f9f9"); setDraw("#e0e8f0"); doc.roundedRect(col, y, contentW, 9, 1, 1, "FD");
+          setFill(rCol2); doc.rect(col, y, 2.5, 9, "F");
+          setTxt("#222222"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.text(r.risk||"", col+5, y+3.5);
+          setTxt("#777777"); doc.setFontSize(6); doc.text(r.mitigation||"", col+5, y+7);
+          setTxt(rCol2); doc.setFont("helvetica","bold"); doc.setFontSize(5.5); doc.text((r.level||"").toUpperCase(), colR-2, y+5.5, { align:"right" });
+          y += 10;
+        });
+      }
+      if (inv.timeline) {
+        y += 3; sH(`DEVELOPMENT TIMELINE — ${inv.timeline.totalMonths} MONTHS`);
+        const phases = Object.entries(inv.timeline).filter(([k]) => k !== "totalMonths");
+        const totalMo = inv.timeline.totalMonths || 1;
+        let tx = col;
+        phases.forEach(([phase, months]) => {
+          const tw = contentW * months / totalMo;
+          const pColor = phase === "permitting" ? AMBER_DIM : phase === "construction" ? BLUE : phase === "commissioning" ? GREEN : "#777777";
+          setFill(pColor); doc.roundedRect(tx, y, tw - 1, 8, 1, 1, "F");
+          setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(5);
+          if (tw > 12) doc.text(`${phase} ${months}mo`, tx + tw/2, y+5.5, { align:"center" });
+          tx += tw;
+        });
+        y += 12;
+      }
+    }
+  }
+
+  {
+    const modes3 = [{ id:"passenger",label:"PASSENGER" },{ id:"cargo",label:"CARGO" },{ id:"combo",label:"CARGO+PAX" }];
+    if (modes3.some(m => results.modes?.[m.id])) {
+      doc.addPage(); y = 0;
+      setFill(NAVY); doc.rect(0, 0, W, 20, "F");
+      setFill(AMBER); doc.rect(0, 20, W, 0.6, "F");
+      if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
+      setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("MULTI-MODE COMPARISON", col+(headerLogo?16:5), 10);
+      y = 26;
+      const cW3 = (contentW - 4) / 3;
+      modes3.forEach((m, i) => {
+        const mx = col + i * (cW3 + 2), mData2 = results.modes?.[m.id];
+        if (!mData2) return;
+        const mD = mData2.demand?.composite || 0, mPI2 = priorityIndex(siteScore, mD), mq2 = getQuadrant(siteScore, mD);
+        const inv2 = mData2.investment, isActive = m.id === em;
+        const mBc = { passenger:BLUE, cargo:"#4a9a8e", combo:"#7b7bd5" }[m.id] || BLUE;
+        setFill(isActive ? mBc : NAVY2); doc.roundedRect(mx, y, cW3, 10, 2, 2, "F");
+        setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.text(m.label, mx+cW3/2, y+7, { align:"center" });
+        let cy3 = y + 13;
+        [["SITE", siteScore],["DEMAND", mD],["P.I.", mPI2]].forEach(([lbl3, sc3]) => {
+          const cCol4 = scoreCol(sc3);
+          setTxt(cCol4); doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.text(String(sc3), mx+8, cy3+7);
+          setTxt("#999999"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.text(lbl3, mx+8, cy3+2);
+          setFill("#e0eaf4"); doc.rect(mx+20, cy3+4, cW3-22, 2, "F");
+          setFill(cCol4); doc.rect(mx+20, cy3+4, (cW3-22)*sc3/100, 2, "F");
+          cy3 += 9;
+        });
+        setFill(mq2.color+"22"); setDraw(mq2.color+"55"); doc.roundedRect(mx, cy3, cW3, 8, 1, 1, "FD");
+        setTxt(mq2.color); doc.setFont("helvetica","bold"); doc.setFontSize(5.5); doc.text(mq2.label, mx+cW3/2, cy3+5.5, { align:"center" });
+        cy3 += 11;
+        if (inv2?.npv !== undefined) {
+          const npvStr3 = `${inv2.npv >= 0 ? "+" : "-"}$${(Math.abs(inv2.npv)/1e6).toFixed(1)}M NPV`;
+          setTxt(inv2.npv >= 0 ? GREEN : RED); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+          doc.text(npvStr3, mx+cW3/2, cy3+4, { align:"center" });
+          cy3 += 8;
+        }
+        if (mData2.summary) {
+          setTxt("#666666"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+          doc.text(doc.splitTextToSize(mData2.summary, cW3-2), mx, cy3);
+        }
+      });
+    }
+  }
+
+  const totalPgs = doc.internal.getNumberOfPages();
+  for (let pg = 3; pg <= totalPgs; pg++) {
+    doc.setPage(pg);
+    setFill("#dde8f0"); doc.rect(0, H - 8, W, 0.4, "F");
+    setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(5);
+    doc.text(`VES  ·  ${firmDisplay}`, col, H - 4);
+    doc.text(`${results.geocode?.matched||"Site"}  ·  Page ${pg} of ${totalPgs}`, colR, H - 4, { align:"right" });
+  }
+
+  const filename2 = `vertiport-report-${(results.geocode?.matched||"site").split(",")[0].replace(/\s+/g,"-").toLowerCase()}.pdf`;
+  doc.save(filename2);
+}
+
 // buildPrompt, extractLLMJson, analyzeWithClaude,
 // fetchEIAPowerScore, fetchNRELDERScore, fetchTexasParcelScore,
 // fetchFEMAFloodScore, fetchZoningScore, scoreAirspace
@@ -2567,7 +3109,7 @@ export default function App({ isPro = false }) {
           if(resp.ok){const blob=await resp.blob();mapDataUrl=await new Promise(res=>{const r=new FileReader();r.onloadend=()=>res(r.result);r.readAsDataURL(blob);});}
         }catch(e){console.warn("Map image fetch failed:",e);}
       }
-      generatePDF(dr,mapDataUrl,logoDataUrl);
+      generatePDF_v2(dr,mapDataUrl,logoDataUrl);
     }
     catch(err){ console.error("PDF error:",err); alert("PDF generation failed: "+err.message); }
     finally{ setPdfGenerating(false); }
