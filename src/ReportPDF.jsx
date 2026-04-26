@@ -159,7 +159,7 @@ function CriteriaRow({ label, score, detail, notes, last }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PAGE 1: COVER
+// PAGE 1: COVER (light theme — no absolute positioning)
 // ─────────────────────────────────────────────────────────────────────────────
 function CoverPage({ results, mapDataUrl, logoDataUrl }) {
   const site   = results.site?.composite   || 0;
@@ -175,142 +175,85 @@ function CoverPage({ results, mapDataUrl, logoDataUrl }) {
   const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
   return (
-    <Page size="A4" style={{ backgroundColor: P.coverDark, position: 'relative' }}>
+    <Page size="A4" style={{ backgroundColor: P.bg }}>
+      <View style={{ flex: 1, paddingHorizontal: 44, paddingTop: 32, paddingBottom: 32 }}>
 
-      {/* Satellite background at low opacity */}
-      {mapDataUrl && (
-        <Image
-          src={mapDataUrl}
-          style={{
-            position: 'absolute', top: 0, left: 0,
-            width: 595, height: 842,
-            objectFit: 'cover',
-            opacity: 0.38,
-          }}
-        />
-      )}
-
-      {/* Dark top gradient band */}
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 220, backgroundColor: '#050c18', opacity: 0.88 }} />
-      {/* Dark bottom gradient band */}
-      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 180, backgroundColor: '#050c18', opacity: 0.92 }} />
-
-      {/* Main content */}
-      <View style={{ flex: 1, paddingHorizontal: 44, paddingTop: 36, paddingBottom: 32 }}>
-
-        {/* Top branding row */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 22 }}>
-          {logoDataUrl && (
-            <Image src={logoDataUrl} style={{ width: 28, height: 28, marginRight: 12 }} />
-          )}
+        {/* Header — same style as interior pages */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingBottom: 12, borderBottomWidth: 1.5, borderBottomColor: P.teal, marginBottom: 24 }}>
+          {logoDataUrl && <Image src={logoDataUrl} style={{ width: 24, height: 24, marginRight: 10 }} />}
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 7.5, color: P.teal, letterSpacing: 2.5, fontWeight: 'bold' }}>
+            <Text style={{ fontSize: 7.5, color: P.teal2, letterSpacing: 2, fontWeight: 'bold' }}>
               LOWALTITUDEECONOMY.AERO
             </Text>
-            <Text style={{ fontSize: 6, color: '#3a5a7a', letterSpacing: 1.5, marginTop: 3 }}>
+            <Text style={{ fontSize: 6, color: P.faint, letterSpacing: 1, marginTop: 2 }}>
               VERTIPORT SITE EVALUATION SYSTEM
             </Text>
           </View>
-          <View style={{
-            backgroundColor: modeCol, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 3,
-          }}>
+          <View style={{ backgroundColor: modeCol, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 3 }}>
             <Text style={{ fontSize: 6.5, color: P.white, fontWeight: 'bold', letterSpacing: 1 }}>
               {modeLabel}
             </Text>
           </View>
         </View>
 
-        {/* Teal hairline */}
-        <View style={{ height: 1.5, backgroundColor: P.teal, opacity: 0.55, marginBottom: 26 }} />
-
         {/* Site name */}
-        <Text style={{ fontSize: 22, color: P.white, fontWeight: 'bold', lineHeight: 1.3, marginBottom: 8 }}>
+        <Text style={{ fontSize: 22, color: P.text, fontWeight: 'bold', lineHeight: 1.3, marginBottom: 6 }}>
           {addr}
         </Text>
         {lat != null && lon != null && (
-          <Text style={{ fontSize: 9.5, color: P.teal, letterSpacing: 0.8, marginBottom: 4 }}>
+          <Text style={{ fontSize: 9, color: P.teal2, letterSpacing: 0.8, marginBottom: 20 }}>
             {lat.toFixed(5)}°N  ·  {Math.abs(lon).toFixed(5)}°W
           </Text>
         )}
 
+        {/* Satellite map — contained image block */}
+        {mapDataUrl && (
+          <View style={{ borderRadius: 6, overflow: 'hidden', marginBottom: 24, height: 190 }}>
+            <Image src={mapDataUrl} style={{ width: '100%', height: 190, objectFit: 'cover' }} />
+          </View>
+        )}
+
         {/* Score panels row */}
-        <View style={{ flexDirection: 'row', marginTop: 36, marginBottom: 36 }}>
-
-          {/* Site Score */}
-          <View style={{
-            flex: 1, alignItems: 'center',
-            borderTopWidth: 2.5, borderTopColor: scoreCol(site),
-            paddingTop: 14, paddingBottom: 16, marginRight: 12,
-            backgroundColor: '#0d1e33',
-            borderRadius: 5,
-          }}>
-            <Text style={{ fontSize: 6, color: P.teal, letterSpacing: 2, fontWeight: 'bold', marginBottom: 10 }}>
-              SITE SCORE
-            </Text>
-            <Gauge score={site} w={86} dark />
-            <Text style={{ fontSize: 6.5, color: P.faint, marginTop: 8, letterSpacing: 0.5 }}>
-              Infrastructure
-            </Text>
-          </View>
-
-          {/* Priority Index */}
-          <View style={{
-            flex: 1, alignItems: 'center',
-            borderTopWidth: 2.5, borderTopColor: scoreCol(pi),
-            paddingTop: 14, paddingBottom: 16, marginRight: 12,
-            backgroundColor: '#0d1e33',
-            borderRadius: 5,
-          }}>
-            <Text style={{ fontSize: 6, color: P.teal, letterSpacing: 2, fontWeight: 'bold', marginBottom: 10 }}>
-              PRIORITY INDEX
-            </Text>
-            <Gauge score={pi} w={86} dark />
-            <Text style={{ fontSize: 6.5, color: P.faint, marginTop: 8, letterSpacing: 0.5 }}>
-              Site × 0.60 + Demand × 0.40
-            </Text>
-          </View>
-
-          {/* Demand Score */}
-          <View style={{
-            flex: 1, alignItems: 'center',
-            borderTopWidth: 2.5, borderTopColor: scoreCol(demand),
-            paddingTop: 14, paddingBottom: 16,
-            backgroundColor: '#0d1e33',
-            borderRadius: 5,
-          }}>
-            <Text style={{ fontSize: 6, color: P.teal, letterSpacing: 2, fontWeight: 'bold', marginBottom: 10 }}>
-              DEMAND SCORE
-            </Text>
-            <Gauge score={demand} w={86} dark />
-            <Text style={{ fontSize: 6.5, color: P.faint, marginTop: 8, letterSpacing: 0.5 }}>
-              Market Demand
-            </Text>
-          </View>
+        <View style={{ flexDirection: 'row', marginBottom: 24 }}>
+          {[
+            { label: 'SITE SCORE',     score: site,   sub: 'Infrastructure' },
+            { label: 'PRIORITY INDEX', score: pi,     sub: 'Site × 0.60 + Demand × 0.40' },
+            { label: 'DEMAND SCORE',   score: demand, sub: 'Market Demand' },
+          ].map((panel, i) => (
+            <View key={i} style={{
+              flex: 1, alignItems: 'center',
+              borderTopWidth: 2.5, borderTopColor: scoreCol(panel.score),
+              paddingTop: 12, paddingBottom: 14,
+              marginRight: i < 2 ? 12 : 0,
+              backgroundColor: P.card, borderRadius: 5,
+            }}>
+              <Text style={{ fontSize: 6, color: P.teal2, letterSpacing: 2, fontWeight: 'bold', marginBottom: 8 }}>
+                {panel.label}
+              </Text>
+              <Gauge score={panel.score} w={86} />
+              <Text style={{ fontSize: 6.5, color: P.faint, marginTop: 6 }}>{panel.sub}</Text>
+            </View>
+          ))}
         </View>
 
-        {/* Quadrant + bottom strip */}
+        {/* Bottom strip */}
         <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-          <View style={{ height: 1.5, backgroundColor: P.teal, opacity: 0.35, marginBottom: 18 }} />
+          <View style={{ height: 1.5, backgroundColor: P.border, marginBottom: 14 }} />
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-
             <View>
-              <Text style={{ fontSize: 6.5, color: '#3a5a7a', letterSpacing: 1.5, marginBottom: 6 }}>
+              <Text style={{ fontSize: 6.5, color: P.faint, letterSpacing: 1.5, marginBottom: 5 }}>
                 SITE CLASSIFICATION
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{
-                  width: 9, height: 9, borderRadius: 4.5,
-                  backgroundColor: q.color, marginRight: 10,
-                }} />
-                <Text style={{ fontSize: 20, color: P.white, fontWeight: 'bold', letterSpacing: 1.5 }}>
+                <View style={{ width: 9, height: 9, borderRadius: 4.5, backgroundColor: q.color, marginRight: 10 }} />
+                <Text style={{ fontSize: 18, color: P.text, fontWeight: 'bold', letterSpacing: 1.5 }}>
                   {q.label}
                 </Text>
               </View>
             </View>
-
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ fontSize: 7, color: '#3a5a7a', marginBottom: 3 }}>{dateStr}</Text>
-              <Text style={{ fontSize: 6.5, color: '#2a4060', letterSpacing: 0.5 }}>
+              <Text style={{ fontSize: 7, color: P.faint, marginBottom: 3 }}>{dateStr}</Text>
+              <Text style={{ fontSize: 6.5, color: P.faint, letterSpacing: 0.5 }}>
                 FAA/NREL CALIBRATED  ·  VES
               </Text>
             </View>
@@ -862,10 +805,12 @@ function RegulatoryPage({ results, logoDataUrl }) {
                 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 8, color: P.text, fontWeight: 'bold', marginBottom: 2 }}>
-                      {item.label}
+                      {item.title}
                     </Text>
-                    {item.detail && (
-                      <Text style={{ fontSize: 7, color: P.dim, lineHeight: 1.4 }}>{item.detail}</Text>
+                    {item.authority && (
+                      <Text style={{ fontSize: 6.5, color: P.faint }}>
+                        {item.authority}{item.citation ? `  ·  ${item.citation}` : ''}
+                      </Text>
                     )}
                   </View>
                   {item.urgency && (
