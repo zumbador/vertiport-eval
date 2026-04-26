@@ -1207,26 +1207,27 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
         y += 3; sH("RISK ASSESSMENT");
         inv.risks.forEach(r => {
           if (y + 9 > SAFE_BOTTOM) newPage();
-          const rCol2 = r.level === "high" ? RED : r.level === "medium" ? AMBER_DIM : GREEN;
+          const rCol2 = r.score >= 65 ? RED : r.score >= 40 ? AMBER_DIM : GREEN;
           setFill("#f9f9f9"); setDraw("#e0e8f0"); doc.roundedRect(col, y, contentW, 9, 1, 1, "FD");
           setFill(rCol2); doc.rect(col, y, 2.5, 9, "F");
-          setTxt("#222222"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.text(r.risk||"", col+5, y+3.5);
-          setTxt("#777777"); doc.setFontSize(6); doc.text(r.mitigation||"", col+5, y+7);
-          setTxt(rCol2); doc.setFont("helvetica","bold"); doc.setFontSize(5.5); doc.text((r.level||"").toUpperCase(), colR-2, y+5.5, { align:"right" });
+          setTxt("#222222"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.text(r.category||r.risk||"", col+5, y+3.5);
+          setTxt("#777777"); doc.setFontSize(6); doc.text(doc.splitTextToSize(r.notes||r.mitigation||"", contentW - 50), col+5, y+7);
+          setTxt(rCol2); doc.setFont("helvetica","bold"); doc.setFontSize(5.5); doc.text(r.label||(r.level||"").toUpperCase()||"", colR-2, y+5.5, { align:"right" });
           y += 10;
         });
       }
       if (inv.timeline) {
         y += 3; sH(`DEVELOPMENT TIMELINE — ${inv.timeline.totalMonths} MONTHS`);
-        const phases = Object.entries(inv.timeline).filter(([k]) => k !== "totalMonths");
+        const tlPhases = inv.timeline.phases || [];
         const totalMo = inv.timeline.totalMonths || 1;
         let tx = col;
-        phases.forEach(([phase, months]) => {
-          const tw = contentW * months / totalMo;
-          const pColor = phase === "permitting" ? AMBER_DIM : phase === "construction" ? BLUE : phase === "commissioning" ? GREEN : "#777777";
-          setFill(pColor); doc.roundedRect(tx, y, tw - 1, 8, 1, 1, "F");
+        tlPhases.forEach(p => {
+          const tw = contentW * (p.months || 0) / totalMo;
+          if (tw < 1) { tx += tw; return; }
+          const pColor = (p.name||"").toLowerCase().includes("pre") ? "#777777" : (p.name||"").toLowerCase().includes("design") || (p.name||"").toLowerCase().includes("permit") ? AMBER_DIM : (p.name||"").toLowerCase().includes("construct") ? BLUE : GREEN;
+          setFill(pColor); doc.roundedRect(tx, y, tw - 0.5, 8, 1, 1, "F");
           setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(5);
-          if (tw > 12) doc.text(`${phase} ${months}mo`, tx + tw/2, y+5.5, { align:"center" });
+          if (tw > 14) doc.text(`${p.name} (${p.months}mo)`, tx + tw/2, y+5.5, { align:"center" });
           tx += tw;
         });
         y += 12;
