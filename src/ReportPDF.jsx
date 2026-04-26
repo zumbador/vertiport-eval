@@ -845,12 +845,12 @@ function RegulatoryPage({ results, logoDataUrl }) {
         </View>
 
         {/* Items grouped by category */}
-        {CATEGORIES.map(cat => {
-          const catItems = items.filter(r => r.category === cat);
+        {Object.entries(CATEGORIES).map(([catKey, catLabel]) => {
+          const catItems = items.filter(r => r.category === catKey);
           if (!catItems.length) return null;
           return (
-            <View key={cat}>
-              <SectionHead title={cat} />
+            <View key={catKey}>
+              <SectionHead title={catLabel} />
               {catItems.map((item, i) => (
                 <View key={i} style={{
                   flexDirection: 'row', alignItems: 'flex-start',
