@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, createContext, useContext } from "react";
 import aamLogo from './assets/aam_logo.png';
 import SetupScreen from './SetupScreen.jsx';
 import { jsPDF } from "jspdf";
-import { downloadPDF } from './ReportPDF.jsx';
 import { findNearestHeliport } from './heliportLookup.js';
 import { estimateFlyingDays } from './flyingDays.js';
 import { buildRegulatoryChecklist, CATEGORIES } from './regulatoryChecklist.js';
@@ -795,7 +794,10 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
   const setDraw = h => doc.setDrawColor(...hex(h));
   const setTxt  = h => doc.setTextColor(...hex(h));
 
-  const NAVY="#0a1628", NAVY2="#0d1f38", AMBER="#f59e0b", BLUE="#5B9BD5";
+  const NAVY="#0a1628", NAVY2="#0d1f38", BLUE="#5B9BD5";
+  const BG="#F9F9F9", CARD="#EAF4FC", CARD2="#ffffff", BORDER="#d0dce8";
+  const ACCENT="#a3d1c6", ACCENT2="#7db0b5";
+  const TXT="#222222", TXT2="#555555", TXT3="#888888";
   const GREEN="#1a8a58", RED="#C0392B", AMBER_DIM="#c87a10";
   const scoreCol = s => s >= 75 ? GREEN : s >= 45 ? AMBER_DIM : RED;
 
@@ -812,141 +814,133 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
   const modeBadgeColor = { passenger:BLUE, cargo:"#4a9a8e", combo:"#7b7bd5" }[em] || BLUE;
 
   const pageHeader = () => {
-    setFill(NAVY2); doc.rect(0, 0, W, 14, "F");
-    setFill(AMBER); doc.rect(0, 14, W, 0.6, "F");
+    setFill(CARD2); doc.rect(0, 0, W, 14, "F");
+    setFill(ACCENT); doc.rect(0, 14, W, 0.8, "F");
     if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 1.5, 11, 11);
-    setTxt("#888888"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+    setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
     doc.text(firmDisplay, col + (headerLogo ? 15 : 0), 8.5);
-    setTxt("#555555"); doc.text(results.geocode?.matched || "Site", colR, 8.5, { align:"right" });
+    setTxt(TXT2); doc.text(results.geocode?.matched || "Site", colR, 8.5, { align:"right" });
     y = 20;
   };
-  const newPage = () => { doc.addPage(); pageHeader(); };
+  const newPage = () => { doc.addPage(); setFill(BG); doc.rect(0, 0, W, H, "F"); pageHeader(); };
 
   const sH = title => {
     if (y + 14 > SAFE_BOTTOM) newPage();
-    setFill(NAVY2); doc.rect(col, y, contentW, 10, "F");
-    setFill(AMBER);  doc.rect(col, y + 10, contentW, 0.6, "F");
-    setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
-    doc.text(title, col + 5, y + 7);
+    setFill(CARD2); setDraw(BORDER); doc.rect(col, y, contentW, 10, "F");
+    setFill(ACCENT); doc.rect(col, y, 3, 10, "F");
+    setFill(ACCENT); doc.rect(col, y + 10, contentW, 0.5, "F");
+    setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+    doc.text(title, col + 7, y + 7);
     y += 13; return y;
   };
 
   const criterionCard = cr => {
-    if (y + 17 > SAFE_BOTTOM) newPage();
-    const sc = cr.score, cCol = sc === null ? "#9ab8d0" : scoreCol(sc);
-    setFill("#f4f7fc"); setDraw("#c8d8ea"); doc.roundedRect(col, y, contentW, 15, 1.5, 1.5, "FD");
-    setFill(cCol); doc.rect(col, y, 3.5, 15, "F");
-    setTxt("#111111"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
+    if (y + 20 > SAFE_BOTTOM) newPage();
+    const sc = cr.score, cCol = sc === null ? ACCENT2 : scoreCol(sc);
+    setFill(CARD2); setDraw(BORDER); doc.roundedRect(col, y, contentW, 17, 1.5, 1.5, "FD");
+    setFill(cCol); doc.rect(col, y, 3.5, 17, "F");
+    // Name — bold, left
+    setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
     doc.text(cr.label, col + 7, y + 6.5);
-    setTxt(cCol); doc.setFont("helvetica","bold"); doc.setFontSize(16);
-    doc.text(sc !== null ? String(sc) : "–", col + 68, y + 10);
-    setFill("#dde8f0"); doc.rect(col + 84, y + 6, 50, 3, "F");
-    if (sc !== null) { setFill(cCol); doc.rect(col + 84, y + 6, 50 * sc / 100, 3, "F"); }
+    // Score — right-aligned, same row as name
+    setTxt(cCol); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    doc.text(sc !== null ? String(sc) : "–", colR - 3, y + 6.5, { align: "right" });
+    // Detail — below name, gray
     if (cr.detail) {
-      setTxt("#555555"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
-      doc.text(doc.splitTextToSize(cr.detail, contentW - 142), col + 138, y + 5.5);
+      setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(6);
+      doc.text(doc.splitTextToSize(cr.detail, 90), col + 7, y + 12);
     }
+    // Score bar — spans middle section
+    setFill(BORDER); doc.rect(col + 100, y + 7, 60, 3, "F");
+    if (sc !== null) { setFill(cCol); doc.rect(col + 100, y + 7, 60 * sc / 100, 3, "F"); }
+    // Notes
     if (cr.notes) {
-      setTxt("#999999"); doc.setFontSize(6);
-      doc.text(doc.splitTextToSize(cr.notes, contentW - 142), col + 138, y + 9.5);
+      setTxt(TXT3); doc.setFontSize(5.5);
+      doc.text(doc.splitTextToSize(cr.notes, 90), col + 7, y + (cr.detail ? 16 : 12));
     }
-    y += 17;
+    y += 19;
   };
 
   // ═══ PAGE 1: COVER ═════════════════════════════════════════
-  setFill(NAVY); doc.rect(0, 0, W, H, "F");
-  const panelSplit = mapDataUrl ? 124 : W;
-  if (mapDataUrl) {
-    doc.addImage(mapDataUrl, "JPEG", panelSplit, 0, W - panelSplit, H);
-    setFill(NAVY); doc.rect(panelSplit, 0, 10, H, "F");
-    setFill(AMBER); doc.rect(panelSplit - 0.5, 0, 1, H, "F");
-  }
-  setFill(NAVY2); doc.rect(0, 0, panelSplit, 16, "F");
-  setFill(AMBER); doc.rect(0, 16, panelSplit, 0.6, "F");
-  if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
-  setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
-  doc.text(firmDisplay, col + (headerLogo ? 16 : 0), 8.5);
-  setTxt("#44445a"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
-  doc.text(new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"}), col + (headerLogo ? 16 : 0), 13.5);
+  setFill("#ffffff"); doc.rect(0, 0, W, H, "F");
 
-  y = 26;
-  setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
-  doc.text("SITE EVALUATION SYSTEM  ·  VES", col, y);
-  y += 10;
-  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(22);
-  doc.text("VERTIPORT", col, y);
-  y += 8;
-  setTxt(BLUE); doc.setFont("helvetica","normal"); doc.setFontSize(8);
-  doc.text("SITE FEASIBILITY REPORT", col, y);
-
-  y += 14;
-  const addrMaxW = panelSplit - col - 8;
-  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(15);
-  const addrLines = doc.splitTextToSize(results.geocode?.matched || "Site Analysis", addrMaxW);
-  doc.text(addrLines, col, y);
-  y += addrLines.length * 7 + 3;
-  setTxt("#6a8aaa"); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
-  doc.text(`${results.geocode?.lat?.toFixed(5)}°N  ·  ${Math.abs(results.geocode?.lon)?.toFixed(5)}°W`, col, y);
-  y += 7;
-  setFill(modeBadgeColor); doc.roundedRect(col, y, 34, 6.5, 1.5, 1.5, "F");
+  // Top bar
+  if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 3, 12, 12);
+  const logoOffX = headerLogo ? 17 : 0;
+  setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+  doc.text(firmDisplay, col + logoOffX, 9);
+  setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+  doc.text("VES  ·  VERTIPORT SITE EVALUATION SYSTEM", col + logoOffX, 14);
+  const mbW = 30, mbH = 7;
+  setFill(modeBadgeColor); doc.roundedRect(colR - mbW, 5.5, mbW, mbH, 1.5, 1.5, "F");
   setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
-  doc.text(modeLabel, col + 17, y + 4.5, { align:"center" });
-  y += 11;
+  doc.text(modeLabel, colR - mbW / 2, 10.5, { align: "center" });
+  setFill(ACCENT); doc.rect(0, 18, W, 0.8, "F");
 
-  // PI Gauge
-  const dialMM = 62;
-  const dialCanvas = renderGauge(pi, pi >= 70 ? GREEN : pi >= 50 ? AMBER_DIM : RED);
-  const dialCenterX = col + (addrMaxW - dialMM) / 2;
-  doc.addImage(dialCanvas, "PNG", dialCenterX, y, dialMM, dialMM);
-  setTxt("#6a8aaa"); doc.setFont("helvetica","bold"); doc.setFontSize(6);
-  doc.text("PRIORITY INDEX", col + addrMaxW / 2, y + dialMM + 5, { align:"center" });
-  y += dialMM + 10;
+  // Quadrant pill
+  y = 24;
+  const pillW = 52, pillH = 7.5;
+  setFill(q.color); doc.roundedRect(col, y, pillW, pillH, 2, 2, "F");
+  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+  doc.text(q.label, col + pillW / 2, y + 5.3, { align: "center" });
 
-  // Mini score pills
-  const halfW = (addrMaxW - 3) / 2;
-  setFill(NAVY2); doc.roundedRect(col, y, halfW, 10, 1.5, 1.5, "F");
-  setFill(NAVY2); doc.roundedRect(col + halfW + 3, y, halfW, 10, 1.5, 1.5, "F");
-  setTxt("#777799"); doc.setFont("helvetica","normal"); doc.setFontSize(5);
-  doc.text("SITE SCORE", col + halfW / 2, y + 3, { align:"center" });
-  doc.text("DEMAND SCORE", col + halfW + 3 + halfW / 2, y + 3, { align:"center" });
-  setTxt(scoreCol(siteScore)); doc.setFont("helvetica","bold"); doc.setFontSize(11);
-  doc.text(String(siteScore), col + halfW / 2, y + 8.5, { align:"center" });
-  setTxt(scoreCol(demandScore));
-  doc.text(String(demandScore), col + halfW + 3 + halfW / 2, y + 8.5, { align:"center" });
-  y += 14;
+  // Address
+  y += 13;
+  setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(15);
+  const addrLines = doc.splitTextToSize(results.geocode?.matched || "Site Analysis", contentW);
+  doc.text(addrLines, col, y);
+  y += addrLines.length * 6.5 + 3;
 
-  // Quadrant stamp
-  y += 4;
-  const stampW = addrMaxW, stampH = 22;
-  setFill(q.color); doc.roundedRect(col, y, stampW, stampH, 3, 3, "F");
-  setDraw("#ffffff33"); doc.setLineWidth(0.5);
-  doc.roundedRect(col + 2.5, y + 2.5, stampW - 5, stampH - 5, 2, 2, "D");
-  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(12);
-  doc.text(q.label, col + stampW / 2, y + 12, { align:"center" });
-  setTxt("#ffffffcc"); doc.setFont("helvetica","normal"); doc.setFontSize(6);
-  doc.text(`Priority Index ${pi}/100`, col + stampW / 2, y + 18.5, { align:"center" });
+  // Coordinates
+  setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(7);
+  doc.text(`${results.geocode?.lat?.toFixed(5)}°N  ·  ${Math.abs(results.geocode?.lon)?.toFixed(5)}°W`, col, y);
+  y += 10;
 
-  // Cover footer
-  setFill(AMBER); doc.rect(0, H - 14, panelSplit, 0.5, "F");
-  setFill(NAVY2); doc.rect(0, H - 13.5, panelSplit, 13.5, "F");
-  setTxt("#44445a"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
-  doc.text("FAA · NREL · FEMA NFHL · USGS · EIA · OSM · Census Bureau", col, H - 7);
-  setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6);
-  doc.text("VES", colR, H - 7, { align:"right" });
+  // Satellite map — full content width
+  const mapH = 74;
+  if (mapDataUrl) {
+    doc.addImage(mapDataUrl, "JPEG", col, y, contentW, mapH);
+    setDraw(BORDER); doc.setLineWidth(0.3); doc.rect(col, y, contentW, mapH, "D");
+    y += mapH + 5;
+  }
+
+  // Three score cards with circular gauges
+  const cardGap = 4;
+  const cardW = (contentW - cardGap * 2) / 3;
+  const gaugeS = 33;
+  const cardH = gaugeS + 19;
+  [
+    { label: "SITE SCORE",     sub: "Infrastructure",              color: scoreCol(siteScore),   val: siteScore },
+    { label: "PRIORITY INDEX", sub: "Site x0.60 + Demand x0.40",  color: scoreCol(pi),           val: pi },
+    { label: "DEMAND SCORE",   sub: "Market Demand",              color: scoreCol(demandScore), val: demandScore },
+  ].forEach((sc, i) => {
+    const cx = col + i * (cardW + cardGap);
+    setFill(CARD); setDraw(BORDER); doc.roundedRect(cx, y, cardW, cardH, 2, 2, "FD");
+    doc.addImage(renderGauge(sc.val, sc.color), "PNG", cx + (cardW - gaugeS) / 2, y + 3, gaugeS, gaugeS);
+    setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(6);
+    doc.text(sc.label, cx + cardW / 2, y + gaugeS + 9, { align: "center" });
+    setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+    doc.text(sc.sub, cx + cardW / 2, y + gaugeS + 15, { align: "center" });
+  });
+  y += cardH + 8;
+
+  // Site classification footer
+  setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+  doc.text("SITE CLASSIFICATION", col, y);
+  setTxt(q.color); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+  doc.text("  " + q.label, col, y + 8);
+  const dateStr = new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
+  setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+  doc.text(dateStr, colR, y, { align: "right" });
+  doc.text("FAA/NREL CALIBRATED  ·  VES", colR, y + 8, { align: "right" });
 
   // ═══ PAGE 2: INSTRUMENT PANEL ══════════════════════════════
   doc.addPage();
-  setFill(NAVY); doc.rect(0, 0, W, H, "F");
-  setFill(NAVY2); doc.rect(0, 0, W, 14, "F");
-  setFill(AMBER); doc.rect(0, 14, W, 0.6, "F");
-  if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 1.5, 11, 11);
-  setTxt("#888888"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
-  doc.text(firmDisplay, col + (headerLogo ? 15 : 0), 8.5);
-  setTxt("#555555"); doc.text(results.geocode?.matched || "Site", colR, 8.5, { align:"right" });
-  y = 22;
-  setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(7);
+  setFill(BG); doc.rect(0, 0, W, H, "F");
+  pageHeader();
+  setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(7);
   doc.text("INSTRUMENT ASSESSMENT  ·  TWO-AXIS SCORING MODEL", col, y);
-  setFill(AMBER); doc.rect(col, y + 3, contentW, 0.4, "F");
+  setFill(ACCENT); doc.rect(col, y + 3, contentW, 0.5, "F");
   y += 9;
 
   const gaugeSize = 60;
@@ -983,41 +977,39 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
     doc.text(label[1], qx + qs / 2, qy + qs / 2 + 3, { align:"center" });
   });
   const dotX = matX + (siteScore / 100) * matSize, dotY = y + (1 - demandScore / 100) * matSize;
-  setFill("#ffffff"); doc.ellipse(dotX, dotY, 2.2, 2.2, "F");
-  setDraw("#ffffff55"); doc.setLineWidth(0.3);
+  setFill(CARD2); doc.ellipse(dotX, dotY, 2.2, 2.2, "F");
+  setDraw("#00000033"); doc.setLineWidth(0.3);
   doc.line(matX, dotY, matX + matSize, dotY);
   doc.line(dotX, y, dotX, y + matSize);
-  setTxt("#44445a"); doc.setFont("helvetica","normal"); doc.setFontSize(5);
-  doc.text("SITE →", matX + matSize + 1, y + matSize + 4);
+  setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(5);
+  doc.text("SITE ->", matX + matSize + 1, y + matSize + 4);
 
-  setFill(NAVY2); doc.roundedRect(piBoxX, y, 44, matSize, 2, 2, "F");
-  setFill(q.color + "22"); doc.roundedRect(piBoxX, y, 44, matSize, 2, 2, "F");
-  setDraw(q.color + "55"); doc.roundedRect(piBoxX, y, 44, matSize, 2, 2, "D");
-  setTxt("#888888"); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+  setFill(CARD); setDraw(q.color + "55"); doc.roundedRect(piBoxX, y, 44, matSize, 2, 2, "FD");
+  setTxt(TXT3); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
   doc.text("PRIORITY INDEX", piBoxX + 22, y + 7, { align:"center" });
-  setTxt(q.color); doc.setFont("helvetica","bold"); doc.setFontSize(28);
+  setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(28);
   doc.text(String(pi), piBoxX + 22, y + 27, { align:"center" });
-  setTxt("#888888"); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
+  setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(5.5);
   doc.text("/100", piBoxX + 22, y + 34, { align:"center" });
   setFill(q.color); doc.roundedRect(piBoxX + 4, y + matSize - 10, 36, 6, 1, 1, "F");
-  setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+  setTxt(CARD2); doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
   doc.text(q.label, piBoxX + 22, y + matSize - 6, { align:"center" });
   y += matSize + 10;
 
-  setFill(NAVY2); doc.roundedRect(col, y, contentW, 18, 2, 2, "F");
-  setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+  setFill(CARD); setDraw(BORDER); doc.roundedRect(col, y, contentW, 18, 2, 2, "FD");
+  setTxt(TXT2); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
   const descTxt = `${getSiteDesc(siteScore)}  ·  ${getDemandDesc(demandScore, em)}`;
   doc.text(doc.splitTextToSize(descTxt, contentW - 10), col + 5, y + 7);
   if (results.development_thesis) {
-    setTxt(AMBER); doc.setFontSize(6.5);
-    doc.text(doc.splitTextToSize("▶  " + results.development_thesis, contentW - 10), col + 5, y + 13);
+    setTxt(ACCENT2); doc.setFontSize(6.5);
+    doc.text(doc.splitTextToSize(">> " + results.development_thesis, contentW - 10), col + 5, y + 13);
   }
   y += 22;
 
   if (results.summary) {
-    setFill(NAVY2); doc.roundedRect(col, y, contentW, 20, 2, 2, "F");
-    setFill(AMBER); doc.rect(col, y, 2, 20, "F");
-    setTxt("#cccccc"); doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    setFill(CARD2); setDraw(BORDER); doc.roundedRect(col, y, contentW, 20, 2, 2, "FD");
+    setFill(ACCENT); doc.rect(col, y, 2.5, 20, "F");
+    setTxt(TXT); doc.setFont("helvetica","normal"); doc.setFontSize(7);
     doc.text(doc.splitTextToSize(results.summary, contentW - 10), col + 6, y + 6);
     y += 24;
   }
@@ -1046,9 +1038,9 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
     y += 3; sH("FLAGS — ITEMS REQUIRING INVESTIGATION");
     flags.forEach(flag => {
       if (y + 12 > SAFE_BOTTOM) newPage();
-      const ls = doc.splitTextToSize("⚑  " + flag, contentW - 6);
+      const ls = doc.splitTextToSize("!  " + flag, contentW - 6);
       const fH = ls.length * 4.5 + 6;
-      setFill("#fffbec"); setDraw(AMBER); doc.roundedRect(col, y, contentW, fH, 1.5, 1.5, "FD");
+      setFill("#fffbec"); setDraw(AMBER_DIM); doc.roundedRect(col, y, contentW, fH, 1.5, 1.5, "FD");
       setTxt(AMBER_DIM); doc.setFont("helvetica","normal"); doc.setFontSize(7.5);
       doc.text(ls, col + 4, y + 5);
       y += fH + 2;
@@ -1087,47 +1079,54 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
     if (y + scH2 > SAFE_BOTTOM) newPage();
     y += 3;
     setFill("#f9fafb"); setDraw("#e0e8f0"); doc.roundedRect(col, y, contentW, scH2, 1.5, 1.5, "FD");
-    strengths.forEach(s => { setTxt(GREEN); doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.text("✓  " + s, col+5, y+7); y += 6; });
-    concerns.forEach(s => { setTxt(AMBER_DIM); doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.text("⚑  " + s, col+5, y+7); y += 6; });
+    strengths.forEach(s => { setTxt(GREEN); doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.text("+  " + s, col+5, y+7); y += 6; });
+    concerns.forEach(s => { setTxt(AMBER_DIM); doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.text("!  " + s, col+5, y+7); y += 6; });
     y += 8;
   }
 
   if (mapDataUrl) {
     doc.addPage(); y = 0;
-    setFill(NAVY2); doc.rect(0, 0, W, 20, "F");
-    setFill(AMBER); doc.rect(0, 20, W, 0.6, "F");
+    setFill(BG); doc.rect(0, 0, W, H, "F");
+    setFill(CARD2); doc.rect(0, 0, W, 20, "F");
+    setFill(ACCENT); doc.rect(0, 20, W, 0.8, "F");
     if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
-    setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(10);
     doc.text("SITE MAP — SATELLITE", col + (headerLogo ? 16 : 5), 10);
-    setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+    setTxt(TXT2); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
     doc.text(`${results.geocode?.matched||"Site"} · ${results.geocode?.lat?.toFixed(5)}°N · ${Math.abs(results.geocode?.lon)?.toFixed(5)}°W`, col + (headerLogo ? 16 : 5), 16);
     y = 21;
-    doc.addImage(mapDataUrl, "JPEG", 0, y, W, H - y);
+    const imgProps = doc.getImageProperties(mapDataUrl);
+    const imgAspect = imgProps.width / imgProps.height;
+    const maxH = H - y - 4;
+    let imgW = W, imgH = W / imgAspect;
+    if (imgH > maxH) { imgH = maxH; imgW = imgH * imgAspect; }
+    doc.addImage(mapDataUrl, "JPEG", (W - imgW) / 2, y, imgW, imgH);
     const asStatus = results.site?.airspace?.status || "Class G/E";
     const asColor = asStatus.includes("Class B SFC") ? RED : asStatus.includes("Class B") ? "#8B0000" : asStatus.includes("Class C") ? "#800080" : asStatus.includes("Class D") ? "#00008B" : GREEN;
-    setFill(NAVY + "ee"); doc.roundedRect(col, H - 22, 62, 14, 2, 2, "F");
+    setFill(NAVY2 + "ee"); doc.roundedRect(col, H - 22, 62, 14, 2, 2, "F");
     setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(5); doc.text("AIRSPACE", col+4, H-17);
     setTxt(asColor); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text(asStatus, col+4, H-11);
   }
 
   {
     doc.addPage(); y = 0;
-    setFill(NAVY); doc.rect(0, 0, W, 20, "F");
-    setFill(AMBER); doc.rect(0, 20, W, 0.6, "F");
+    setFill(BG); doc.rect(0, 0, W, H, "F");
+    setFill(CARD2); doc.rect(0, 0, W, 20, "F");
+    setFill(ACCENT); doc.rect(0, 20, W, 0.8, "F");
     if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
-    setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(10);
     doc.text("REGULATORY CHECKLIST", col + (headerLogo ? 16 : 5), 10);
-    const regItems = results.modes?.[em]?.regulatory?.items || results.regulatory?.items || [];
-    setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+    const regItems = results.modes?.[em]?.regulatory || results.regulatory || [];
+    setTxt(TXT2); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
     doc.text(`${results.geocode?.matched||"Site"} · ${regItems.length} items · ${regItems.filter(r=>r.status==="required").length} required · ${regItems.filter(r=>r.urgency==="critical").length} critical`, col + (headerLogo ? 16 : 5), 16);
     y = 26;
     const regByCat = {};
     regItems.forEach(item => { const cat = item.category || "General"; if (!regByCat[cat]) regByCat[cat] = []; regByCat[cat].push(item); });
     Object.entries(regByCat).forEach(([cat, items]) => {
       if (y + 10 > SAFE_BOTTOM) { newPage(); }
-      setFill("#1a2f4a"); doc.rect(col, y, contentW, 7, "F");
-      setFill(AMBER); doc.rect(col, y + 7, contentW, 0.5, "F");
-      setTxt(AMBER); doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.text(cat.toUpperCase(), col+4, y+5);
+      setFill(CARD); doc.rect(col, y, contentW, 7, "F");
+      setFill(ACCENT); doc.rect(col, y + 7, contentW, 0.5, "F");
+      setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.text(cat.toUpperCase(), col+4, y+5);
       y += 9;
       items.forEach(item => {
         if (y + 10 > SAFE_BOTTOM) { newPage(); }
@@ -1154,12 +1153,13 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
     const inv = results.modes?.[em]?.investment || results.investment;
     if (inv) {
       doc.addPage(); y = 0;
-      setFill(NAVY); doc.rect(0, 0, W, 20, "F");
-      setFill(AMBER); doc.rect(0, 20, W, 0.6, "F");
+      setFill(BG); doc.rect(0, 0, W, H, "F");
+      setFill(CARD2); doc.rect(0, 0, W, 20, "F");
+      setFill(ACCENT); doc.rect(0, 20, W, 0.8, "F");
       if (headerLogo) doc.addImage(headerLogo, logoFmt, col, 2, 12, 12);
-      setTxt("#ffffff"); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+      setTxt(TXT); doc.setFont("helvetica","bold"); doc.setFontSize(10);
       doc.text("INVESTMENT & VIABILITY", col + (headerLogo ? 16 : 5), 10);
-      setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+      setTxt(TXT2); doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
       doc.text(`${modeLabel} mode · Grade ${inv.grade?.grade||"—"} · CAPEX $${inv.capex?.mid ? (inv.capex.mid/1e6).toFixed(1) : "–"}M`, col + (headerLogo ? 16 : 5), 16);
       y = 26;
       const gColor = { A:GREEN, B:"#2da06a", C:AMBER_DIM, D:RED }[inv.grade?.grade] || AMBER_DIM;
@@ -1283,8 +1283,8 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
   const totalPgs = doc.internal.getNumberOfPages();
   for (let pg = 3; pg <= totalPgs; pg++) {
     doc.setPage(pg);
-    setFill("#dde8f0"); doc.rect(0, H - 8, W, 0.4, "F");
-    setTxt("#aaaaaa"); doc.setFont("helvetica","normal"); doc.setFontSize(5);
+    setFill(BORDER); doc.rect(0, H - 8, W, 0.4, "F");
+    setTxt(TXT3); doc.setFont("helvetica","normal"); doc.setFontSize(5);
     doc.text(`VES  ·  ${firmDisplay}`, col, H - 4);
     doc.text(`${results.geocode?.matched||"Site"}  ·  Page ${pg} of ${totalPgs}`, colR, H - 4, { align:"right" });
   }
@@ -3120,7 +3120,7 @@ export default function App({ isPro = false }) {
           if(resp.ok){const blob=await resp.blob();mapDataUrl=await new Promise(res=>{const r=new FileReader();r.onloadend=()=>res(r.result);r.readAsDataURL(blob);});}
         }catch(e){console.warn("Map image fetch failed:",e);}
       }
-      await downloadPDF(dr,mapDataUrl,logoDataUrl);
+      generatePDF_v2(dr,mapDataUrl,logoDataUrl);
     }
     catch(err){ console.error("PDF error:",err); alert("PDF generation failed: "+err.message); }
     finally{ setPdfGenerating(false); }
