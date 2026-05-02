@@ -174,11 +174,11 @@ export default function SiteMap({ geocode, heliport, airspace, onMapClick }) {
     // Base layers
     const street = L.tileLayer(
       "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-      { attribution: "&copy; OpenStreetMap contributors &copy; CARTO", maxZoom: 19 }
+      { attribution: "&copy; OpenStreetMap contributors &copy; CARTO", maxZoom: 19, detectRetina: true }
     );
     const satellite = L.tileLayer(
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { attribution: "&copy; Esri", maxZoom: 18 }
+      { attribution: "&copy; Esri", maxZoom: 18, detectRetina: true }
     );
     street.addTo(map);
 
