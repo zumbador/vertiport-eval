@@ -915,3 +915,47 @@ export function scoreAirspace(lat, lon) {
   };
 }
 
+// ── Build-Now Readiness Flag ─────────────────────────────────────
+export function computeBuildNowFlag(results, mode = 'passenger') {
+  const checks = [];
+
+  const ac = results.site?.parcel?.acreage_estimate;
+  if (ac != null) {
+    checks.push({ label: "Parcel >= 1.5 ac", pass: ac >= 1.5, hard: true,
+                  detail: `${Number(ac).toFixed(2)} ac` });
+  }
+
+  const airStatus = results.site?.airspace?.status || "";
+  const isClassBSFC = /class\s*b\s*\(sfc/i.test(airStatus);
+  checks.push({ label: "Not Class B SFC", pass: !isClassBSFC, hard: true,
+                detail: airStatus || "unknown" });
+
+  const floodZone = results.fema?.flood_zone || results.site?.soil?.flood_zone || "";
+  const isVE = /zone\s*ve/i.test(floodZone);
+  const isAE = /zone\s*ae/i.test(floodZone);
+  checks.push({ label: "Flood zone: not VE/AE", pass: !isVE && !isAE, hard: isVE,
+                detail: floodZone || "unknown" });
+
+  const powerScore = results.eia?.score;
+  if (powerScore != null) {
+    checks.push({ label: "Power grid accessible", pass: powerScore >= 40, hard: false,
+                  detail: `EIA score ${powerScore}` });
+  }
+
+  const compliance = results.osm?.compliance || results.site?.zoning?.compliance || "";
+  checks.push({ label: "Zoning compatible", pass: !/(marginal|adverse)/i.test(compliance), hard: false,
+                detail: compliance || "unknown" });
+
+  const regItems = results.modes?.[mode]?.regulatory || results.regulatory || [];
+  const critCount = Array.isArray(regItems) ? regItems.filter(r => r.urgency === 'critical').length : 0;
+  checks.push({ label: "No critical regulatory blocks", pass: critCount === 0, hard: false,
+                detail: critCount > 0 ? `${critCount} critical item(s)` : "Clear" });
+
+  const hardFails = checks.filter(c => c.hard && !c.pass);
+  const softFails = checks.filter(c => !c.hard && !c.pass);
+
+  if (hardFails.length > 0) return { flag: "RED",   color: "#C0392B", label: "HOLD — HARD STOP",        checks, hardFails, softFails };
+  if (softFails.length === 0) return { flag: "GREEN", color: "#1a8a58", label: "BUILD-NOW READY",          checks, hardFails: [], softFails: [] };
+  return                             { flag: "AMBER", color: "#c87a10", label: "BUILD — CONDITIONS APPLY", checks, hardFails: [], softFails };
+}
+
