@@ -24,6 +24,7 @@ import {
   fetchFEMAFloodScore,
   fetchZoningScore,
   scoreAirspace,
+  computeBuildNowFlag,
 } from './scoring.js';
 
 const C = {
@@ -368,15 +369,51 @@ function generatePDF(results, mapDataUrl = null, logoDataUrl = null) {
     doc.rect(col, y, W - margin*2, (strengths.length + concerns.length) * 6 + 8, "F");
     strengths.forEach((s) => {
       setTxt("#1a8a58"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
-      doc.text("✓  " + s, col + 4, y + 7);
+      doc.text("+  " + s, col + 4, y + 7);
       y += 6;
     });
     concerns.forEach((s) => {
       setTxt("#c87a10"); doc.setFont("helvetica","bold"); doc.setFontSize(7.5);
-      doc.text("⚑  " + s, col + 4, y + 7);
+      doc.text("!  " + s, col + 4, y + 7);
       y += 6;
     });
     y += 6;
+  }
+
+  // ── Build-Now Readiness Flag ──
+  {
+    const bn = computeBuildNowFlag(results, em);
+    const bnFailChecks = bn.checks.filter(c => !c.pass);
+    const bnH = 10 + (bnFailChecks.length > 0 ? bnFailChecks.length * 5.5 + 4 : 0);
+    if (y + bnH > SAFE_BOTTOM) newPage();
+    const bnBg = bn.flag === 'GREEN' ? '#1a8a58' : bn.flag === 'RED' ? '#C0392B' : '#c87a10';
+    doc.setFillColor(bnBg); doc.rect(col, y, W - margin*2, 10, "F");
+    doc.setTextColor('#FFFFFF'); doc.setFont("helvetica","bold"); doc.setFontSize(8);
+    doc.text(bn.label, col+5, y+6.5);
+    const bnSub = bn.flag==='GREEN'
+      ? `All ${bn.checks.length} readiness criteria clear`
+      : bn.flag==='RED'
+      ? `${bn.hardFails.length} hard-stop${bn.hardFails.length!==1?'s':''}`
+      : `${bn.softFails.length} condition${bn.softFails.length!==1?'s':''} require resolution`;
+    doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+    doc.text(bnSub, col + (W - margin*2) - doc.getTextWidth(bnSub) - 5, y+6.5);
+    y += 10;
+    if (bnFailChecks.length > 0) {
+      doc.setFillColor(bn.flag==='RED' ? '#fdf0ef' : '#fdf8ec');
+      doc.rect(col, y, W - margin*2, bnFailChecks.length * 5.5 + 4, "F");
+      let fy = y + 5;
+      bn.hardFails.forEach(c => {
+        doc.setTextColor('#C0392B'); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+        doc.text('x  ' + c.label, col+5, fy); fy += 5.5;
+      });
+      bn.softFails.forEach(c => {
+        doc.setTextColor('#c87a10'); doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+        doc.text('^  ' + c.label, col+5, fy); fy += 5.5;
+      });
+      y += bnFailChecks.length * 5.5 + 4 + 4;
+    } else {
+      y += 5;
+    }
   }
 
   // ── Site Map ──
@@ -1082,6 +1119,35 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
     strengths.forEach(s => { setTxt(GREEN); doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.text("+  " + s, col+5, y+7); y += 6; });
     concerns.forEach(s => { setTxt(AMBER_DIM); doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.text("!  " + s, col+5, y+7); y += 6; });
     y += 8;
+  }
+
+  // Build-Now Readiness Flag
+  {
+    const bn = computeBuildNowFlag(results, em);
+    const bnFailChecks = bn.checks.filter(c => !c.pass);
+    const bnH = 10 + (bnFailChecks.length > 0 ? bnFailChecks.length * 5.5 + 4 : 0);
+    if (y + bnH > SAFE_BOTTOM) newPage();
+    const bnBg = bn.flag === 'GREEN' ? GREEN : bn.flag === 'RED' ? RED : AMBER_DIM;
+    setFill(bnBg); setDraw(bnBg); doc.roundedRect(col, y, contentW, 10, 1.5, 1.5, "FD");
+    setTxt('#FFFFFF'); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text(bn.label, col+5, y+6.5);
+    const bnSub = bn.flag==='GREEN'
+      ? `All ${bn.checks.length} readiness criteria clear`
+      : bn.flag==='RED'
+      ? `${bn.hardFails.length} hard-stop${bn.hardFails.length!==1?'s':''}`
+      : `${bn.softFails.length} condition${bn.softFails.length!==1?'s':''} require resolution`;
+    doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+    doc.text(bnSub, col + contentW - doc.getTextWidth(bnSub) - 5, y+6.5);
+    y += 10;
+    if (bnFailChecks.length > 0) {
+      setFill(bn.flag==='RED' ? '#fdf0ef' : '#fdf8ec'); setDraw(bnBg + '55');
+      doc.roundedRect(col, y, contentW, bnFailChecks.length * 5.5 + 4, 0, 1.5, "FD");
+      let fy = y + 5;
+      bn.hardFails.forEach(c => { setTxt(RED); doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.text('x  ' + c.label, col+5, fy); fy += 5.5; });
+      bn.softFails.forEach(c => { setTxt(AMBER_DIM); doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.text('^  ' + c.label, col+5, fy); fy += 5.5; });
+      y += bnFailChecks.length * 5.5 + 4 + 4;
+    } else {
+      y += 5;
+    }
   }
 
   if (mapDataUrl) {
@@ -2514,6 +2580,43 @@ function DashboardPanel({ isPro }) {
                                        borderRadius:3, padding:'3px 9px' }}>⚑ {s}</span>
               ))}
             </div>
+
+            {/* ── Build-Now Readiness Flag ── */}
+            {(() => {
+              const bn = computeBuildNowFlag(results, demandTab);
+              const failChecks = bn.checks.filter(c => !c.pass);
+              return (
+                <div style={{ borderRadius:6, marginBottom:12, overflow:'hidden' }}>
+                  <div style={{ background:bn.color, padding:'8px 14px', display:'flex',
+                                 alignItems:'center', gap:10 }}>
+                    <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11, fontWeight:700,
+                                   color:'#FFFFFF', letterSpacing:'0.12em' }}>{bn.label}</div>
+                    <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11,
+                                   color:'rgba(255,255,255,0.82)' }}>
+                      {bn.flag==='GREEN'
+                        ? `All ${bn.checks.length} readiness criteria clear`
+                        : bn.flag==='RED'
+                        ? `${bn.hardFails.length} hard-stop${bn.hardFails.length!==1?'s':''} — site does not advance`
+                        : `${bn.softFails.length} condition${bn.softFails.length!==1?'s':''} require resolution`}
+                    </div>
+                  </div>
+                  {failChecks.length > 0 && (
+                    <div style={{ background: bn.flag==='RED' ? '#fdf0ef' : '#fdf8ec',
+                                   border:`1px solid ${bn.color}55`, borderTop:'none', padding:'8px 14px' }}>
+                      {bn.hardFails.map((c,i) => (
+                        <div key={i} style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11,
+                                               color:'#C0392B', lineHeight:1.5, marginBottom:2 }}>✗ {c.label}</div>
+                      ))}
+                      {bn.softFails.map((c,i) => (
+                        <div key={i} style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11,
+                                               color:'#c87a10', lineHeight:1.5, marginBottom:2 }}>△ {c.label}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
           </div>
         </div>
 
