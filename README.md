@@ -12,22 +12,21 @@ Pre-built installers are also available on the [Releases page](https://github.co
 
 | Platform | File |
 |----------|------|
-| Windows | `Vertiport.Eval.Setup.0.1.2.exe` |
-| macOS | `Vertiport.Eval-0.1.2-arm64.dmg` |
-| Linux (AppImage) | `Vertiport.Eval-0.1.2.AppImage` |
-| Linux (Debian/Ubuntu) | `vertiport-eval_0.1.2_amd64.deb` |
+| Windows | `Vertiport.Eval.Setup.0.1.3.exe` |
+| macOS | `Vertiport.Eval-0.1.3-arm64.dmg` |
+| Linux (AppImage) | `Vertiport.Eval-0.1.3.AppImage` |
+| Linux (Debian/Ubuntu) | `vertiport-eval_0.1.3_amd64.deb` |
 
 > First time? See [BYOK_SETUP.md](./BYOK_SETUP.md) for API key setup instructions.
 
 ---
 
-## What's New in v0.1.2
+## What's New in v0.1.3
 
-- **Sidebar panel architecture** — navigation moved to a collapsible left sidebar with eight panels: Dashboard, Site Analysis, Infrastructure, Regulatory, Financial, Action Items, Map View, and Batch Scoring
-- **Dark mode** — toggle in the top bar, persists per session
-- **ProGate UI** — pro-only panels display a blurred upgrade prompt in the free build instead of being hidden
-- **Site picker dropdown** — recent sites accessible from the top bar without re-entering addresses
-- **Batch Scoring panel** — draw a polygon on the map to score multiple candidate parcels at once (pro feature, blurred in free build)
+- **Build-Now Readiness Flag** — GREEN / AMBER / RED indicator showing whether a site is ready to proceed; checks parcel size, airspace class, flood zone, power grid, zoning compliance, and open regulatory items; shown in the Dashboard and on the PDF cover page
+- **PDF redesign** — switched to jsPDF; cinematic dark cover with investment verdict, light interior data pages, gauge dials, and quadrant matrix
+- **HiDPI map tiles** — sharper Leaflet map rendering on retina and high-DPI displays
+- **Electron stability** — fixed Linux no-sandbox launch flag, startup loading screen, and IPC error guard
 
 ---
 
@@ -68,7 +67,7 @@ VES is open source (MIT). You bring your own AI API key — nothing is sent to a
 
 | Criterion | Source |
 |-----------|--------|
-| Parcel acreage + land class | Harris County Appraisal District (HCAD) ArcGIS |
+| Parcel acreage + land class | Harris, Dallas, Tarrant, Travis, and Bexar county GIS APIs; optional [Regrid](https://regrid.com) BYOK key for nationwide coverage |
 | Flood zone | FEMA National Flood Hazard Layer (NFHL) |
 | Elevation | USGS 3DEP |
 | FAA airspace | FAA NASR — 39 Class B + ~85 Class C + ~65 Class D airports nationwide |
@@ -193,7 +192,7 @@ Scoring weights, thresholds, and LLM rubrics are documented internally. Users se
 ---
 
 ## Roadmap
-- [ ] Parcel APIs for Dallas, Tarrant, Travis, and Bexar counties
+- [ ] Parcel APIs for additional US metros beyond the current five Texas counties
 
 ---
 
