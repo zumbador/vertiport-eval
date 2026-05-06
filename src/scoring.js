@@ -959,3 +959,62 @@ export function computeBuildNowFlag(results, mode = 'passenger') {
   return                             { flag: "AMBER", color: "#c87a10", label: "BUILD — CONDITIONS APPLY", checks, hardFails: [], softFails };
 }
 
+// ── Regulatory Sensitivity (FAA EB 105A is interim — flag near-threshold passes) ──
+// Returns items that PASS today but sit in a buffer band where a tightening of
+// FAA / state rules would flip them. Use to advise re-test in Phase 1 of roadmap.
+export function computeRegulatorySensitivity(results) {
+  const flags = [];
+
+  const ac = results.site?.parcel?.acreage_estimate;
+  if (ac != null && ac >= 1.5 && ac < 2.0) {
+    flags.push({
+      check: "Parcel acreage",
+      message: `Parcel ${Number(ac).toFixed(2)} ac sits in 1.5–2.0 ac buffer of NREL minimum. Re-test if FAA tightens minimum site footprint.`,
+      severity: "AMBER",
+      source: "NREL min site",
+    });
+  }
+
+  const floodZone = (results.fema?.flood_zone || results.site?.soil?.flood_zone || "").toString();
+  if (/zone\s*x\b.*500|500.*year|0\.2%/i.test(floodZone)) {
+    flags.push({
+      check: "Flood zone",
+      message: `${floodZone} passes today, but a FEMA remap to AE would disqualify. Recommend elevation certificate.`,
+      severity: "AMBER",
+      source: "FEMA NFHL",
+    });
+  }
+
+  const airStatus = (results.site?.airspace?.status || "").toString();
+  if (/class\s*c/i.test(airStatus) || /class\s*b\s*\(outer|class\s*b\s*\(floor/i.test(airStatus)) {
+    flags.push({
+      check: "Airspace",
+      message: `${airStatus} requires ATC coordination. If FAA reclassifies the floor, ops feasibility shifts.`,
+      severity: "AMBER",
+      source: "FAA airspace",
+    });
+  }
+
+  const compliance = (results.osm?.compliance || results.site?.zoning?.compliance || "").toString();
+  if (/marginal/i.test(compliance)) {
+    flags.push({
+      check: "Zoning",
+      message: `Marginal zoning — passes today but a CUP denial or use-table revision would fail it. File for explicit pre-approval.`,
+      severity: "AMBER",
+      source: "Local zoning",
+    });
+  }
+
+  const powerScore = results.eia?.score;
+  if (powerScore != null && powerScore >= 40 && powerScore < 50) {
+    flags.push({
+      check: "Power grid",
+      message: `Grid score ${powerScore} sits just above the accessibility threshold. Confirm interconnection capacity before commitment.`,
+      severity: "AMBER",
+      source: "EIA",
+    });
+  }
+
+  return flags;
+}
+

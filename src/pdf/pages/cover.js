@@ -17,7 +17,7 @@ export function drawCover(doc, results, ctx) {
   doc.setTextColor(...PALETTE.ink);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8);
-  doc.text("VES PRO", 12, 18);
+  doc.text("VES Community Version", 12, 18);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(TYPE.caption.size);

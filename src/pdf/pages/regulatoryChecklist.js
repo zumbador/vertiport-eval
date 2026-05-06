@@ -9,7 +9,7 @@ const URGENCY_COLOR = {
 
 export function drawRegulatoryChecklist(doc, results, ctx) {
   const { H, margin, contentW } = PAGE;
-  const { branding, em = "passenger" } = ctx;
+  const { branding, em = "passenger", regulatorySensitivity = [], designDValue } = ctx;
   const siteName = (results?.geocode?.matched || "Site").split(",")[0].trim();
 
   const items = results?.modes?.[em]?.regulatory || results?.regulatory || [];
@@ -40,10 +40,48 @@ export function drawRegulatoryChecklist(doc, results, ctx) {
   doc.setFontSize(TYPE.caption.size);
   doc.setTextColor(...PALETTE.steel);
   doc.text(
-    `${items.length} items  ·  ${required} required  ·  ${critical} critical`,
+    `${items.length} items  ·  ${required} required  ·  ${critical} critical  ·  EB 105A Design D = ${designDValue ?? 50} ft`,
     margin, y
   );
-  y += 10;
+  y += 8;
+
+  if (regulatorySensitivity.length > 0) {
+    const sensH = 8 + regulatorySensitivity.length * 6;
+    if (y + sensH > SAFE_BOTTOM) { newPage(); y = 30; }
+    doc.setFillColor(255, 248, 232);
+    doc.setDrawColor(...PALETTE.amber);
+    doc.setLineWidth(0.3);
+    doc.rect(margin, y, contentW, sensH, "FD");
+    doc.setFillColor(...PALETTE.amber);
+    doc.rect(margin, y, 2.5, sensH, "F");
+
+    drawBadge(doc, {
+      x: margin + 5, y: y + 1.5, w: 44, h: 5,
+      label: "REGULATORY-SENSITIVE", color: PALETTE.amber, fontSize: 6,
+    });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(TYPE.pageMeta.size);
+    doc.setTextColor(...PALETTE.steel);
+    doc.text(
+      `${regulatorySensitivity.length} check${regulatorySensitivity.length === 1 ? "" : "s"} pass today within a buffer of failing — re-test if FAA EB 105A revises.`,
+      margin + 52, y + 4.8
+    );
+    let sy = y + 9;
+    regulatorySensitivity.forEach((s) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(TYPE.pageMeta.size);
+      doc.setTextColor(...PALETTE.ink);
+      doc.text(sanitize(s.check), margin + 5, sy + 2);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...PALETTE.steel);
+      const lines = doc.splitTextToSize(sanitize(s.message), contentW - 32);
+      doc.text(lines.slice(0, 1), margin + 28, sy + 2);
+      sy += 6;
+    });
+    y += sensH + 4;
+  } else {
+    y += 2;
+  }
 
   if (items.length === 0) {
     doc.setFont("helvetica", "normal");

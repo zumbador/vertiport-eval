@@ -26,6 +26,7 @@ import {
   fetchZoningScore,
   scoreAirspace,
   computeBuildNowFlag,
+  computeRegulatorySensitivity,
 } from './scoring.js';
 
 const C = {
@@ -822,7 +823,7 @@ function renderGauge(score, fillHex) {
 
 const REPORT_V2 = true;
 
-function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
+function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null, extraCtx = {}) {
   if (REPORT_V2) {
     const siteScore = results.site?.composite || 0;
     const demandScore = results.demand?.composite || 0;
@@ -832,6 +833,7 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
     const buildNowFlag = computeBuildNowFlag(results, em);
     const investment = buildInvestmentSummary(results);
     const demandCriteria = DEMAND_CRITERIA[em] || DEMAND_CRITERIA.passenger;
+    const regulatorySensitivity = computeRegulatorySensitivity(results);
     const fmtBn = (c) => typeof c === "string" ? c : `${c?.label || ""}${c?.detail ? ` — ${c.detail}` : ""}`.trim();
     let verdictLabel, hardStops = [], conditions = [];
     if (buildNowFlag.flag === "GREEN") {
@@ -848,6 +850,8 @@ function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
       mapDataUrl, logoDataUrl,
       siteScore, demandScore, pi, q, em, verdict,
       buildNowFlag, investment, demandCriteria,
+      regulatorySensitivity,
+      ...extraCtx,
     });
   }
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -2507,7 +2511,8 @@ function RecentReportsPanel({ compact }) {
 function DashboardPanel({ isPro }) {
   const { results, phase, log, error, mode, setMode, address, setAddress,
           lat, setLat, lon, setLon, siteLabel, setSiteLabel, run, reset,
-          demandTab, setDemandTab, recentReports, theme, setActivePanel } = useApp();
+          demandTab, setDemandTab, recentReports, theme, setActivePanel,
+          designDValue, setDesignDValue } = useApp();
   const T = tok(theme);
   const canRun = phase !== 'loading' && (
     mode === 'address' ? address.trim().length > 0 : parseCoords(lat, lon) !== null
@@ -2647,6 +2652,37 @@ function DashboardPanel({ isPro }) {
               );
             })()}
 
+            {/* ── Regulatory Sensitivity ── */}
+            {(() => {
+              const sens = computeRegulatorySensitivity(results);
+              if (sens.length === 0) return null;
+              return (
+                <div style={{ borderRadius:6, marginBottom:12, overflow:'hidden',
+                              border:`1px solid ${C.yellow}55` }}>
+                  <div style={{ background:'rgba(200,122,16,0.10)', padding:'8px 14px',
+                                 display:'flex', alignItems:'center', gap:10 }}>
+                    <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:10, fontWeight:700,
+                                   letterSpacing:'0.15em',
+                                   background:C.yellow, color:'#fff', padding:'2px 8px', borderRadius:3 }}>
+                      REGULATORY-SENSITIVE
+                    </div>
+                    <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11,
+                                   color:T.textMuted }}>
+                      {sens.length} check{sens.length===1?'':'s'} pass within a buffer of failing — re-test if FAA EB 105A revises.
+                    </div>
+                  </div>
+                  <div style={{ padding:'8px 14px', background:'#fdf8ec' }}>
+                    {sens.map((s,i) => (
+                      <div key={i} style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11,
+                                             color:T.textPrimary, lineHeight:1.5, marginBottom:3 }}>
+                        <span style={{ fontWeight:700 }}>{s.check}:</span> {s.message}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
         </div>
 
@@ -2772,6 +2808,17 @@ function DashboardPanel({ isPro }) {
             </div>
           </>
         )}
+
+        <div style={{ marginTop:14, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+          <span style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:C.amberDim,
+                         letterSpacing:'0.2em' }}>EB 105A DESIGN D-VALUE (FT)</span>
+          <input type="number" min="20" max="200" step="5" value={designDValue}
+            onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) setDesignDValue(v); }}
+            style={{ ...inputStyle, width:80, padding:'6px 10px', fontSize:12 }}/>
+          <span style={{ fontFamily:"'IBM Plex Sans',sans-serif", fontSize:11, color:T.textMuted }}>
+            FATO {Math.round(1.5 * designDValue)} ft  ·  Used in roadmap + regulatory advisory.
+          </span>
+        </div>
       </div>
 
       {log.length > 0 && (
@@ -3021,6 +3068,7 @@ export default function App({ isPro = false }) {
   const [recentReports,setRecentReports]=useState(()=>{try{return JSON.parse(localStorage.getItem("veval_recent")||"[]");}catch{return [];}});
   const [activePanel, setActivePanel] = useState('dashboard');
   const [theme, setTheme] = useState('light');
+  const [designDValue, setDesignDValue] = useState(50);
 
   // ── Load LLM config on mount ──────────────────────────────────
   useEffect(() => {
@@ -3253,7 +3301,7 @@ export default function App({ isPro = false }) {
           if(resp.ok){const blob=await resp.blob();mapDataUrl=await new Promise(res=>{const r=new FileReader();r.onloadend=()=>res(r.result);r.readAsDataURL(blob);});}
         }catch(e){console.warn("Map image fetch failed:",e);}
       }
-      generatePDF_v2(dr,mapDataUrl,logoDataUrl);
+      generatePDF_v2(dr,mapDataUrl,logoDataUrl,{designDValue});
     }
     catch(err){ console.error("PDF error:",err); alert("PDF generation failed: "+err.message); }
     finally{ setPdfGenerating(false); }
@@ -3297,6 +3345,7 @@ export default function App({ isPro = false }) {
     handleDownloadPDF, pdfGenerating,
     llmConfig, setShowSetup,
     handleMapClick,
+    designDValue, setDesignDValue,
   };
   const T = tok(theme);
 
