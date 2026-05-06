@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, createContext, useContext } from "react";
 import aamLogo from './assets/aam_logo.png';
 import SetupScreen from './SetupScreen.jsx';
 import { jsPDF } from "jspdf";
+import { generatePDFv2 } from "./pdf/index.js";
 import { findNearestHeliport } from './heliportLookup.js';
 import { estimateFlyingDays } from './flyingDays.js';
 import { buildRegulatoryChecklist, CATEGORIES } from './regulatoryChecklist.js';
@@ -819,7 +820,36 @@ function renderGauge(score, fillHex) {
   return c.toDataURL("image/png");
 }
 
+const REPORT_V2 = true;
+
 function generatePDF_v2(results, mapDataUrl = null, logoDataUrl = null) {
+  if (REPORT_V2) {
+    const siteScore = results.site?.composite || 0;
+    const demandScore = results.demand?.composite || 0;
+    const pi = priorityIndex(siteScore, demandScore);
+    const q = getQuadrant(siteScore, demandScore);
+    const em = results.evalMode || "passenger";
+    const buildNowFlag = computeBuildNowFlag(results, em);
+    const investment = buildInvestmentSummary(results);
+    const demandCriteria = DEMAND_CRITERIA[em] || DEMAND_CRITERIA.passenger;
+    const fmtBn = (c) => typeof c === "string" ? c : `${c?.label || ""}${c?.detail ? ` — ${c.detail}` : ""}`.trim();
+    let verdictLabel, hardStops = [], conditions = [];
+    if (buildNowFlag.flag === "GREEN") {
+      verdictLabel = "SITE CLEARED";
+    } else if (buildNowFlag.flag === "RED") {
+      verdictLabel = "SITE DISQUALIFIED";
+      hardStops = (buildNowFlag.hardFails || []).map(fmtBn);
+    } else {
+      verdictLabel = "CONDITIONAL CLEARANCE";
+      conditions = (buildNowFlag.softFails || []).map(fmtBn);
+    }
+    const verdict = { verdict: verdictLabel, hardStops, conditions };
+    return generatePDFv2(results, {
+      mapDataUrl, logoDataUrl,
+      siteScore, demandScore, pi, q, em, verdict,
+      buildNowFlag, investment, demandCriteria,
+    });
+  }
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = 210, H = 297, margin = 16;
   const col = margin, colR = W - margin, contentW = W - margin * 2;
